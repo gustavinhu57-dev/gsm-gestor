@@ -1,0 +1,21 @@
+{
+  "name": "gsm-gestor",
+  "version": "1.0.0",
+  "description": "GSM Gestor — CRM MVP",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "express": "^4.22.3",
+    "multer": "^2.4.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
