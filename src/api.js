@@ -384,6 +384,14 @@ r.post('/quotes/:id/status', wrap((req, res) => {
   return getQuote(q.id);
 }));
 
+// Estética em que o Barbosa ajudou: ele recebe os 40% dela (senão ficam na GSM)
+r.put('/quotes/:id/helper', wrap((req) => {
+  const v = req.body.barbosa_helped ? 1 : 0;
+  db.prepare('UPDATE quotes SET barbosa_helped = ?, updated_at = ? WHERE id = ?').run(v, now(), req.params.id);
+  const q = db.prepare('SELECT client_id FROM quotes WHERE id = ?').get(req.params.id);
+  if (q) logEvent(q.client_id, req.params.id, 'servico', v ? 'Barbosa ajudou na estética (recebe 40%)' : 'Barbosa não participou da estética', req.user);
+  return getQuote(req.params.id);
+}));
 r.post('/quotes/:id/costs', wrap((req, res) => {
   if (num(req.body.amount) <= 0) return bad(res, 'Informe o valor do custo');
   db.prepare('INSERT INTO costs(quote_id, category, description, amount, created_at) VALUES (?,?,?,?,?)')
@@ -572,16 +580,17 @@ function financeData(from, to) {
   // Base da divisão por equipe: tapeçaria (Gustavo + Barbosa) e estética (Gustavo + Carlinhos), proporcional ao valor dos itens
   const TAPECARIA = ['Tapeçaria', 'Caminhão', 'Moto', 'Sofá / residencial'];
   const itemsQ = db.prepare('SELECT i.price, i.cost, s.category FROM quote_items i LEFT JOIN services s ON s.id = i.service_id WHERE i.quote_id = ?');
-  const split = { tapecaria: 0, estetica: 0 };
+  const split = { tapecaria: 0, estetica: 0, estetica_barbosa: 0 };
   for (const q of executed) {
     const its = itemsQ.all(q.id);
-    if (!its.length) { split.estetica += q.total - q.costs_total; continue; }
+    if (!its.length) { split[q.barbosa_helped ? 'estetica_barbosa' : 'estetica'] += q.total - q.costs_total; continue; }
     const sum = its.reduce((s, i) => s + i.price, 0);
     const itemMat = its.reduce((s, i) => s + (i.cost || 0), 0);
     const extra = q.costs_total - itemMat; // taxa de cartão, material extra lançado à mão
     its.forEach((i) => {
       const share = sum ? i.price / sum : 1 / its.length;
-      split[TAPECARIA.includes(i.category) ? 'tapecaria' : 'estetica'] += q.total * share - (i.cost || 0) - extra * share;
+      const grp = TAPECARIA.includes(i.category) ? 'tapecaria' : q.barbosa_helped ? 'estetica_barbosa' : 'estetica';
+      split[grp] += q.total * share - (i.cost || 0) - extra * share;
     });
   }
   // Custo operacional estimado (panos, desgaste, boina) dos serviços executados: sai do caixa da empresa

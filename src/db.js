@@ -135,6 +135,7 @@ if (!hasCol('quote_items', 'cost')) db.exec('ALTER TABLE quote_items ADD COLUMN 
 if (!hasCol('services', 'op_cost')) db.exec('ALTER TABLE services ADD COLUMN op_cost REAL NOT NULL DEFAULT 0');
 if (!hasCol('services', 'op_cost_large')) db.exec('ALTER TABLE services ADD COLUMN op_cost_large REAL');
 if (!hasCol('quote_items', 'op_cost')) db.exec('ALTER TABLE quote_items ADD COLUMN op_cost REAL NOT NULL DEFAULT 0');
+if (!hasCol('quotes', 'barbosa_helped')) db.exec('ALTER TABLE quotes ADD COLUMN barbosa_helped INTEGER NOT NULL DEFAULT 0');
 if (!hasCol('quotes', 'vehicle_size')) db.exec("ALTER TABLE quotes ADD COLUMN vehicle_size TEXT DEFAULT 'P'");
 
 // Tabela oficial GSM (out/2026). Custos de estética = estimativa de produtos do kit Vonixx (preço médio de mercado);

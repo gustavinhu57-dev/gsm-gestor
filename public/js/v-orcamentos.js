@@ -113,7 +113,6 @@ async function quoteForm(v, existing, query) {
         <div class="tr"><span>Subtotal</span><b id="qqSub"></b></div>
         <div class="tr"><span>Desconto (R$)</span><input class="i" id="qqDisc" inputmode="decimal" value="${st.discount || ''}" placeholder="0,00"></div>
         <div class="tr"><span>Acréscimo (R$)</span><input class="i" id="qqSur" inputmode="decimal" value="${st.surcharge || ''}" placeholder="0,00"></div>
-        ${num(m.settings.taxa_credito) || num(m.settings.taxa_debito) ? `<div class="chips" style="margin:4px 0">${num(m.settings.taxa_debito) ? `<button type="button" class="chip" data-card="${num(m.settings.taxa_debito)}">+ débito ${esc(m.settings.taxa_debito)}%</button>` : ''}${num(m.settings.taxa_credito) ? `<button type="button" class="chip" data-card="${num(m.settings.taxa_credito)}">+ crédito ${esc(m.settings.taxa_credito)}%</button>` : ''}<button type="button" class="chip" data-card="0">Pix / dinheiro</button></div>` : ''}
         <div class="grand"><span>TOTAL</span><span id="qqTot"></span></div>
         <div class="small red bold hidden" id="qqFloor" style="margin-top:8px"></div>
       </div>
@@ -243,16 +242,6 @@ async function quoteForm(v, existing, query) {
   $('#qqFree').onclick = () => { st.items.push({ service_id: null, name: '', price: 0 }); renderItems(); $$('[data-name]').pop().focus(); };
   $('#qqDisc').oninput = (e) => { st.discount = num(e.target.value); totals(); };
   $('#qqSur').oninput = (e) => { st.surcharge = num(e.target.value); totals(); };
-  // Cartão: acréscimo que cobre a taxa da maquininha (o valor líquido recebido fica igual ao do Pix)
-  $$('[data-card]').forEach((b) => {
-    b.onclick = () => {
-      const r = Number(b.dataset.card) / 100;
-      const liq = Math.max(0, st.items.reduce((s, i) => s + num(i.price), 0) - num(st.discount));
-      st.surcharge = r ? Math.ceil((liq / (1 - r) - liq) * 100) / 100 : 0;
-      $('#qqSur').value = st.surcharge ? String(st.surcharge).replace('.', ',') : '';
-      $$('[data-card]').forEach((x) => x.classList.toggle('active', x === b)); totals();
-    };
-  });
   bindPhotoPicker(v, 'qp', (blobs, meta) => { blobs.forEach((b) => st.photos.push({ blob: b, url: URL.createObjectURL(b), category: meta.category, marketing: meta.marketing, show_client: meta.show_client })); renderPhotos(); });
 
   const save = async (share) => {
@@ -389,6 +378,8 @@ route(/^#\/orcamento\/(\d+)$/, async (v, [id]) => {
   const receber = Math.max(0, q.total - q.paid);
   const margem = q.total - q.costs_total;
   const veh = [q.brand, q.model, q.year, q.color].filter(Boolean).join(' ');
+  const TAPE = ['Tapeçaria', 'Caminhão', 'Moto', 'Sofá / residencial'];
+  const hasEstetica = q.items.some((i) => { const sv = m.services.find((x) => x.id === i.service_id); return !sv || !TAPE.includes(sv.category); });
   const A = {
     wa: `<button class="btn wa" data-a="wa">${icon('wa')} WhatsApp</button>`,
     send: `<a class="btn gold" href="#/orcamento/${q.id}/enviar">${icon('share')} ${q.sent_at ? 'Reenviar' : 'Enviar / compartilhar'}</a>`,
@@ -425,6 +416,7 @@ route(/^#\/orcamento\/(\d+)$/, async (v, [id]) => {
       ${q.responsible ? `<dt>Responsável</dt><dd>${esc(q.responsible)}</dd>` : ''}<dt>Validade</dt><dd>${q.validity_days} dias</dd></dl>
   </div>
 
+  ${sold && hasEstetica ? `<label class="check card" style="margin-bottom:12px"><input type="checkbox" id="qHelp" ${q.barbosa_helped ? 'checked' : ''}><span><b>${esc(m.settings.split_socio2_nome || 'Barbosa')} ajudou nesta estética</b><br><small class="muted">Marcado: ele recebe ${esc(m.settings.split_socio2 || '40')}% da estética deste serviço. Desmarcado: essa parte fica na GSM.</small></span></label>` : ''}
   ${sold ? `<div class="card"><h2>Financeiro do serviço</h2>
     <div class="grid g2 md-g4" style="margin-bottom:12px">
       <div class="kpi"><small>Vendido</small><strong>${brl(q.total)}</strong></div>
@@ -463,6 +455,7 @@ route(/^#\/orcamento\/(\d+)$/, async (v, [id]) => {
   };
   $$('[data-a]', v).forEach((b) => { b.onclick = act[b.dataset.a]; });
   bindPhotoThumbs(v, q.photos);
+  if ($('#qHelp')) $('#qHelp').onchange = async (e) => { await run(() => put(`/quotes/${q.id}/helper`, { barbosa_helped: e.target.checked })); toast(e.target.checked ? 'Barbosa recebe 40% desta estética' : 'Parte da estética fica na GSM'); };
   bindPhotoPicker(v, 'dp', async (blobs, meta) => { await run(() => uploadPhotos({ quote_id: q.id, ...meta }, blobs)); toast('Fotos salvas'); reload(); });
   if (sold) {
     $('#payF').onsubmit = async (e) => { e.preventDefault(); await run(() => post(`/quotes/${q.id}/payments`, formData(e.target))); toast('Pagamento registrado'); reload(); };

@@ -88,14 +88,14 @@ route(/^#\/financeiro$/, async (v, _, query) => {
       </div>
       ${(() => {
         const st = S.meta.settings; const base = Math.max(0, T.margem);
-        const tb = Math.max(0, T.split?.tapecaria || 0); const eb = Math.max(0, T.split?.estetica || 0);
+        const tb = Math.max(0, T.split?.tapecaria || 0); const eb = Math.max(0, T.split?.estetica || 0); const ebb = Math.max(0, T.split?.estetica_barbosa || 0);
         const p1 = Number(st.split_socio1) || 0; const p2 = Number(st.split_socio2) || 0; const pc = Number(st.split_caixa) || 0;
         const meta = Number(st.prolabore_meta) || 0; const caixaLiq = base * pc / 100 - (T.custo_operacional || 0) - T.despesas;
         const share = (nome, v, withMeta) => line(esc(nome), `${brl(v)}${withMeta && meta ? ` <span class="tiny ${v >= meta ? 'green' : 'red'}">meta ${brl0(meta)}</span>` : ''}`);
         return `<div class="card"><h2>Divisão da margem ${p1}/${p2}/${pc}</h2>
-          <p class="tiny muted" style="margin-top:0">Base = faturamento − material (e taxa de cartão). Tapeçaria: ${brl0(tb)} · Estética: ${brl0(eb)}.</p>
+          <p class="tiny muted" style="margin-top:0">Base = faturamento − material (e taxa de cartão). Tapeçaria: ${brl0(tb)} · Estética: ${brl0(eb + ebb)}${ebb ? ` (${brl0(ebb)} com ajuda do ${esc(st.split_socio2_nome)})` : ''}.</p>
           ${share(`${st.split_socio1_nome} (${p1}% de tudo)`, base * p1 / 100, true)}
-          ${share(`${st.split_socio2_nome} (${p2}% da tapeçaria)`, tb * p2 / 100, true)}
+          ${share(`${st.split_socio2_nome} (${p2}% da tapeçaria${ebb ? ' + estética em que ajudou' : ''})`, (tb + ebb) * p2 / 100, true)}
           ${share(`${st.split_estetica_nome || 'Parceiro da estética'} (${p2}% da estética)`, eb * p2 / 100, false)}
           ${line(`Caixa da empresa (${pc}%)`, brl(base * pc / 100))}
           ${line('(−) Custo operacional dos serviços (panos, desgaste)', brl(T.custo_operacional || 0), 'red')}
