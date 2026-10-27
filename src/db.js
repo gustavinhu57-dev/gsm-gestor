@@ -194,6 +194,8 @@ function seed() {
     split_socio1_nome: 'Gustavo', split_socio1: '40',
     split_socio2_nome: 'Barbosa', split_socio2: '40',
     split_caixa: '20', prolabore_meta: '2000',
+    // Precificação: custos fixos do mês (pagos pelo caixa) e faturamento-meta do mês para ratear esses custos
+    custos_fixos_mes: '350', meta_faturamento_mes: '15000',
     quote_message: 'Olá {nome}! Tudo bem? Segue o orçamento da *GSM — Estética & Tapeçaria Automotiva*{veiculo}:\n\n{itens}\n\n*TOTAL: {total}*\n\nVer orçamento completo: {link}\n\nValidade: {validade} dias. Qualquer dúvida estou à disposição!',
   };
   const insS = db.prepare('INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)');
@@ -246,6 +248,19 @@ const CATALOG_V3 = {
     Object.entries(CATALOG_V3).forEach(([name, v]) => up.run(v[0], v[1], v[2], v[3], v[4], v[5], v[6] || null, name));
     db.prepare("UPDATE services SET description = 'Reforma do painel e colchão da cabine do caminhão' WHERE name = 'Painel e colchão' AND active = 1").run();
     db.prepare("INSERT INTO settings(key, value) VALUES ('catalog_version', '3') ON CONFLICT(key) DO UPDATE SET value = '3'").run();
+  })();
+})();
+
+// 28/10: produtos de lavagem/polimento/farol são INSUMOS pagos pelo caixa (não pelo cliente) → passam para o custo
+// operacional. Material (sai antes da divisão) fica só onde o cliente paga: tapeçaria. Mini higienização R$280; antirrepelência com Hydrox Wash.
+(function applyCatalogV4() {
+  if (db.prepare("SELECT 1 FROM settings WHERE key = 'catalog_version' AND value >= '4'").get()) return;
+  db.transaction(() => {
+    db.prepare(`UPDATE services SET op_cost = op_cost + cost, op_cost_large = COALESCE(op_cost_large, op_cost) + COALESCE(cost_large, cost),
+      cost = 0, cost_large = NULL WHERE active = 1 AND category IN ('Lavagem', 'Higienização', 'Polimento')`).run();
+    db.prepare("UPDATE services SET price = 280, price_large = 280 WHERE name = 'Mini higienização' AND active = 1").run();
+    db.prepare("UPDATE services SET op_cost = 20, op_cost_large = 24.5, description = 'Lavagem com shampoo cerâmico que repele água' WHERE name = 'Lavagem com antirrepelência' AND active = 1").run();
+    db.prepare("INSERT INTO settings(key, value) VALUES ('catalog_version', '4') ON CONFLICT(key) DO UPDATE SET value = '4'").run();
   })();
 })();
 

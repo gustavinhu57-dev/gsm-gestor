@@ -18,6 +18,22 @@ function relDay(d) {
   if (diff === 0) return 'hoje'; if (diff === -1) return 'ontem'; if (diff === 1) return 'amanhã';
   return diff < 0 ? `há ${-diff} dias` : `em ${diff} dias`;
 }
+// Preço mínimo no modelo GSM: o caixa (split_caixa% da base = preço − material) precisa pagar os insumos/operacional
+// do serviço + a parte dos custos fixos (custos_fixos_mes ÷ meta_faturamento_mes, proporcional ao preço).
+function pricing() {
+  const st = S.meta.settings;
+  const caixa = (Number(st.split_caixa) || 20) / 100;
+  const fixo = (Number(st.custos_fixos_mes) || 0) / (Number(st.meta_faturamento_mes) || 1);
+  return { caixa, fixo, folga: caixa - fixo };
+}
+function minPrice(s, size) {
+  const g = size === 'G';
+  const mat = (g && s.cost_large != null ? s.cost_large : s.cost) || 0;
+  const op = (g && s.op_cost_large != null ? s.op_cost_large : s.op_cost) || 0;
+  const { caixa, folga } = pricing();
+  if (folga <= 0) return Infinity;
+  return Math.ceil((op + caixa * mat) / folga) || 0;
+}
 const firstName = (n) => String(n || '').split(' ')[0];
 const stageLabel = (k) => (S.meta.stages.find((s) => s[0] === k) || [k, k])[1];
 const STATUS = { criado: 'Criado', enviado: 'Enviado', aprovado: 'Fechado', executado: 'Executado', standby: 'Stand-by' };

@@ -198,14 +198,32 @@ function eventForm(clientId) {
 route(/^#\/servicos$/, async (v) => {
   const list = await api('/services');
   const cats = [...new Set(list.map((s) => s.category || 'Outros'))];
+  const pr = pricing(); const st = S.meta.settings;
+  const under = list.filter((s) => s.active && ((s.price && s.price < minPrice(s, 'P')) || (s.price_large && s.price_large < minPrice(s, 'G'))));
   v.innerHTML = `<div class="page-head"><h1>Serviços e preços</h1><button class="btn gold" id="ns">${icon('plus')} Serviço</button></div>
+    <div class="card small"><b>Como o preço mínimo é calculado</b><br>
+      <span class="muted">O caixa recebe ${pct(pr.caixa)} de (preço − material) e precisa pagar os insumos e o operacional do serviço + ${pct(pr.fixo)} do preço para os custos fixos (${brl0(st.custos_fixos_mes)}/mês ÷ meta de ${brl0(st.meta_faturamento_mes)}).</span><br>
+      <b>Preço mínimo = (insumos + operacional + ${pct(pr.caixa)} × material) ÷ ${(pr.folga * 100).toFixed(1).replace('.', ',')}%</b>
+      ${under.length ? `<div class="red bold" style="margin-top:6px">⚠ ${under.length} serviço(s) abaixo do mínimo: ${under.map((s) => esc(s.name)).join(', ')}</div>` : '<div class="green bold" style="margin-top:6px">Todos os preços estão acima do mínimo.</div>'}
+      <div class="tiny muted" style="margin-top:4px">Ajuste os custos fixos e a meta em Configurações.</div></div>
     ${cats.map((cat) => `<div class="card tight"><h2 style="padding:14px 14px 0">${esc(cat)}</h2><div class="list">
       ${list.filter((s) => (s.category || 'Outros') === cat).map((s) => `<div class="item" data-s="${s.id}"><div class="main">
-        <div class="title">${esc(s.name)} ${s.active ? '' : '<span class="tag red">inativo</span>'}</div><div class="sub">${esc(s.description || '')}</div></div>
-        <div class="val">${svcPrice(s)}<div class="tiny muted" style="font-weight:600">${s.cost ? 'material ' + brl(s.cost) + (s.cost_large != null && s.cost_large !== s.cost ? ' / ' + brl(s.cost_large) : '') : 'material a definir'}</div><div class="tiny muted" style="font-weight:600">operacional ${brl(s.op_cost || 0)}${s.op_cost_large != null && s.op_cost_large !== s.op_cost ? ' / ' + brl(s.op_cost_large) : ''}</div></div></div>`).join('')}</div></div>`).join('')}`;
+        <div class="title">${esc(s.name)} ${s.active ? '' : '<span class="tag red">inativo</span>'}</div><div class="sub">${esc(s.description || '')}</div><div style="margin-top:4px">${s.active ? floorTag(s) : ''}</div></div>
+        <div class="val">${svcPrice(s)}<div class="tiny muted" style="font-weight:600">${s.cost ? 'material ' + brl(s.cost) + (s.cost_large != null && s.cost_large !== s.cost ? ' / ' + brl(s.cost_large) : '') : 'sem material'}</div><div class="tiny muted" style="font-weight:600">insumos+oper. ${brl(s.op_cost || 0)}${s.op_cost_large != null && s.op_cost_large !== s.op_cost ? ' / ' + brl(s.op_cost_large) : ''}</div></div></div>`).join('')}</div></div>`).join('')}`;
   $('#ns', v).onclick = () => serviceForm();
   $$('[data-s]', v).forEach((el) => { el.onclick = () => serviceForm(list.find((s) => s.id == el.dataset.s)); });
 });
+// Mostra o preço mínimo e alerta se o preço da tabela está abaixo
+function floorTag(s) {
+  const out = [];
+  [['P', s.price], ['G', s.price_large != null ? s.price_large : null]].forEach(([sz, pr]) => {
+    if (pr == null || (sz === 'G' && s.price_large === s.price && (s.op_cost_large ?? s.op_cost) === s.op_cost && (s.cost_large ?? s.cost) === s.cost)) return;
+    const m = minPrice(s, sz);
+    if (!pr) return;
+    out.push(`<span class="tag ${pr < m ? 'red' : ''}">${s.price_large != null && s.price_large !== s.price ? sz + ' ' : ''}mín. ${brl0(m)}${pr < m ? ' ⚠' : ''}</span>`);
+  });
+  return out.join(' ');
+}
 const svcPrice = (s) => (!s.price ? '<span class="amber">a definir</span>' : s.price_large != null && s.price_large !== s.price ? `P ${brl(s.price)}<br>G ${brl(s.price_large)}` : brl(s.price));
 function serviceForm(s = { active: 1 }) {
   const cats = [...new Set(['Lavagem', 'Higienização', 'Polimento', 'Tapeçaria', 'Caminhão', 'Moto', 'Sofá / residencial', 'Outros', ...S.meta.services.map((x) => x.category).filter(Boolean)])];
@@ -214,11 +232,11 @@ function serviceForm(s = { active: 1 }) {
     <div class="row"><label class="f"><span>Categoria</span><input class="i" name="category" list="cats" value="${esc(s.category)}"><datalist id="cats">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label>
     <label class="f"><span>Preço carro pequeno (R$)</span><input class="i" name="price" inputmode="decimal" value="${s.price ?? ''}"></label></div>
     <div class="row"><label class="f"><span>Preço carro grande (vazio = igual)</span><input class="i" name="price_large" inputmode="decimal" value="${s.price_large ?? ''}"></label>
-    <label class="f"><span>Custo material (R$)</span><input class="i" name="cost" inputmode="decimal" value="${s.cost ?? ''}"></label>
+    <label class="f"><span>Material — cliente paga (R$)</span><input class="i" name="cost" inputmode="decimal" value="${s.cost ?? ''}"></label>
     <label class="f"><span>Custo carro grande</span><input class="i" name="cost_large" inputmode="decimal" value="${s.cost_large ?? ''}"></label></div>
-    <div class="row"><label class="f"><span>Custo operacional (panos, desgaste)</span><input class="i" name="op_cost" inputmode="decimal" value="${s.op_cost ?? ''}"></label>
+    <div class="row"><label class="f"><span>Insumos + operacional — caixa paga (R$)</span><input class="i" name="op_cost" inputmode="decimal" value="${s.op_cost ?? ''}"></label>
     <label class="f"><span>Operacional carro grande</span><input class="i" name="op_cost_large" inputmode="decimal" value="${s.op_cost_large ?? ''}"></label></div>
-    <p class="tiny muted" style="margin-top:0">Material: pago pelo cliente, sai antes da divisão. Operacional: pago pelo caixa da empresa.</p>
+    <p class="tiny muted" style="margin-top:0">Material (tecido, corvin, linha): pago pelo cliente, sai antes da divisão. Insumos + operacional (produtos de lavagem, panos, desgaste, boina, massa): pagos pelo caixa da empresa.</p>
     <label class="f"><span>Descrição curta</span><input class="i" name="description" value="${esc(s.description)}"></label>
     <label class="f row" style="align-items:center"><input type="checkbox" name="active" class="auto" style="width:22px;height:22px" ${s.active ? 'checked' : ''}> <span style="margin:0">Ativo (aparece no orçamento)</span></label>
     <button class="btn gold block lg">Salvar</button></form>`, (md) => {

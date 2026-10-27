@@ -114,6 +114,7 @@ async function quoteForm(v, existing, query) {
         <div class="tr"><span>Desconto (R$)</span><input class="i" id="qqDisc" inputmode="decimal" value="${st.discount || ''}" placeholder="0,00"></div>
         <div class="tr"><span>Acréscimo (R$)</span><input class="i" id="qqSur" inputmode="decimal" value="${st.surcharge || ''}" placeholder="0,00"></div>
         <div class="grand"><span>TOTAL</span><span id="qqTot"></span></div>
+        <div class="small red bold hidden" id="qqFloor" style="margin-top:8px"></div>
       </div>
     </section>
     <section class="qq-section"><h2><span class="step-n">4</span> Fotos do veículo <span class="muted small" style="font-weight:500">(opcional)</span></h2>
@@ -195,6 +196,8 @@ async function quoteForm(v, existing, query) {
     const sub = st.items.reduce((s, i) => s + num(i.price), 0);
     const tot = Math.max(0, sub - num(st.discount) + num(st.surcharge));
     $('#qqSub').textContent = brl(sub); $('#qqTot').textContent = brl(tot); $('#qqTot2').textContent = brl(tot);
+    const floor = st.items.reduce((s, i) => { const sv = services.find((x) => x.id === i.service_id); return s + (sv ? minPrice(sv, st.size) : 0); }, 0);
+    const w = $('#qqFloor'); if (w) { w.classList.toggle('hidden', !(st.items.length && tot < floor)); w.textContent = `⚠ Total abaixo do preço mínimo (${brl(floor)}): o caixa não cobre insumos e custos fixos.`; }
     $('#n3').classList.toggle('ok', st.items.length > 0);
     $$('.svc-btn').forEach((b) => b.classList.toggle('added', st.items.some((i) => String(i.service_id) === b.dataset.add)));
   };
