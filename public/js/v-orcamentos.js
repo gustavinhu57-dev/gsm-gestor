@@ -55,12 +55,12 @@ function photoViewer(p) {
   });
 }
 // Bloco de seleção de fotos (câmera/galeria) reutilizável
-function photoPickerHtml(id, { phase, show = true } = {}) {
+function photoPickerHtml(id, { phase, show = true, marketing = true } = {}) {
   const m = S.meta;
   return `<div class="row">${phase ? `<label class="f"><span>Fase</span><select class="i" id="${id}Phase">${opts(m.photoPhases, phase)}</select></label>` : ''}
     <label class="f"><span>Categoria</span><select class="i" id="${id}Cat">${opts(m.photoCategories, 'Frente')}</select></label></div>
     <label class="check"><input type="checkbox" id="${id}Show" ${show ? 'checked' : ''}><span><b>Mostrar ao cliente no orçamento</b><br><small class="muted">Ex.: foto da avaria para ele entender o serviço</small></span></label>
-    <label class="f"><span>Autorizado p/ marketing (divulgação)</span><select class="i" id="${id}Mk">${opts(Object.entries(MK), 'nao_informado')}</select></label>
+    ${marketing ? `<label class="f"><span>Autorizado p/ marketing (divulgação)</span><select class="i" id="${id}Mk">${opts(Object.entries(MK), 'nao_informado')}</select></label>` : ''}
     <div class="upload-btns">
       <label class="btn">${icon('camera')} Câmera<input type="file" accept="image/*" capture="environment" hidden id="${id}Cam"></label>
       <label class="btn">${icon('image')} Galeria<input type="file" accept="image/*" multiple hidden id="${id}Gal"></label>
@@ -73,7 +73,7 @@ function bindPhotoPicker(root, id, onFiles) {
     toast(files.length > 1 ? `Processando ${files.length} fotos…` : 'Processando foto…');
     const blobs = [];
     for (const f of files) blobs.push(await resizeImage(f));
-    onFiles(blobs, { category: $(`#${id}Cat`, root).value, marketing: $(`#${id}Mk`, root).value, show_client: $(`#${id}Show`, root).checked ? '1' : '0', phase: $(`#${id}Phase`, root)?.value });
+    onFiles(blobs, { category: $(`#${id}Cat`, root).value, marketing: $(`#${id}Mk`, root)?.value || 'nao_informado', show_client: $(`#${id}Show`, root).checked ? '1' : '0', phase: $(`#${id}Phase`, root)?.value });
   };
   $(`#${id}Cam`, root).onchange = handler; $(`#${id}Gal`, root).onchange = handler;
 }
@@ -117,7 +117,7 @@ async function quoteForm(v, existing, query) {
     </section>
     <section class="qq-section"><h2><span class="step-n">4</span> Fotos do veículo <span class="muted small" style="font-weight:500">(opcional)</span></h2>
       ${existing?.photos?.length ? `<p class="small muted">${existing.photos.length} foto(s) já salvas neste orçamento.</p>` : ''}
-      ${photoPickerHtml('qp')}
+      ${photoPickerHtml('qp', { marketing: false })}
       <div class="photos" id="qqPh"></div>
     </section>
     <section class="qq-section"><h2><span class="step-n">5</span> Observações</h2>
