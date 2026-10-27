@@ -192,6 +192,7 @@ route(/^#\/config$/, async (v) => {
       <input class="i" type="password" name="password" placeholder="Nova senha (mín. 8)" minlength="8" required autocomplete="new-password">
       <button class="btn">Alterar senha</button></form></div>
 
+    <div class="card"><h2>Site GSM</h2><p class="small muted" style="margin-top:0">O site usa os serviços ativos, o WhatsApp e o Instagram desta tela. Fotos com "Autorizado p/ marketing = Sim" aparecem em Resultados (antes/depois). Pedidos do site chegam em Orçamentos › Criados.</p><a class="btn" href="/" target="_blank">Abrir o site</a></div>
     <div class="card"><h2>Backup e integrações</h2>
       ${admin ? `<a class="btn" href="/api/backup">Baixar backup do banco</a>` : ''}
       <p class="small" style="margin-bottom:4px"><b>Entrada de leads do futuro site / landing pages</b></p>

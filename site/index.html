@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0a09">
+<title>GSM — Estética &amp; Tapeçaria Automotiva</title>
+<meta name="description" content="Higienização, polimento, restauração de faróis, bancos, revestimentos e tapeçaria automotiva. Atenção a cada detalhe. Peça seu orçamento pelo WhatsApp.">
+<meta property="og:title" content="GSM — Estética & Tapeçaria Automotiva">
+<meta property="og:description" content="Atenção a cada detalhe: do carro à costura. Peça seu orçamento.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="/s/img/6-costura.jpg">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="preload" as="image" href="/s/img/1-carro.jpg">
+<link rel="stylesheet" href="/s/site.css">
+</head>
+<body>
+<header class="top">
+  <a class="logo" href="#inicio" aria-label="GSM início">G<b>S</b>M</a>
+  <nav class="nav"><a href="#servicos">Serviços</a><a href="#resultados">Resultados</a><a href="#como">Como funciona</a></nav>
+  <a class="btn gold sm" href="#orcamento">Pedir orçamento</a>
+</header>
+
+<!-- DESEJO: aproximação progressiva carro → interior → banco → couro → textura → costura -->
+<section class="zoom" id="inicio" aria-label="Atenção aos detalhes">
+  <div class="stage">
+    <div class="layers" id="layers"></div>
+    <div class="shade"></div>
+    <div class="hero" id="hero">
+      <p class="kicker">Estética &amp; Tapeçaria Automotiva</p>
+      <h1>Cada detalhe<br>importa.</h1>
+      <p class="lead">Do carro inteiro à última costura. É assim que a GSM trabalha.</p>
+      <div class="hero-cta"><a class="btn gold" href="#orcamento">Pedir orçamento</a><a class="btn ghost wa-link hidden" target="_blank" rel="noopener">WhatsApp</a></div>
+      <div class="scroll-hint" aria-hidden="true">Role para aproximar <span>↓</span></div>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"><span class="n" id="capN"></span><strong id="capT"></strong><span id="capS"></span></div>
+    <div class="rail" id="rail" aria-hidden="true"></div>
+  </div>
+</section>
+
+<!-- RESULTADO / OFERTA -->
+<section class="sec" id="servicos">
+  <div class="wrap">
+    <p class="kicker">Serviços</p>
+    <h2>Estética e tapeçaria no mesmo lugar</h2>
+    <p class="sub">Escolha o serviço e receba o orçamento com fotos do seu próprio veículo.</p>
+    <div id="svc" class="svc-grid"></div>
+  </div>
+</section>
+
+<section class="sec dark" id="resultados">
+  <div class="wrap">
+    <p class="kicker">Resultados</p>
+    <h2>Antes e depois, sem filtro</h2>
+    <div id="port"></div>
+  </div>
+</section>
+
+<!-- CONFIANÇA -->
+<section class="sec" id="como">
+  <div class="wrap">
+    <p class="kicker">Como funciona</p>
+    <h2>Simples, transparente e documentado</h2>
+    <ol class="steps">
+      <li><b>Avaliação</b><span>Você manda uma mensagem ou traz o veículo. Olhamos de perto o que precisa ser feito.</span></li>
+      <li><b>Orçamento com fotos</b><span>Você recebe pelo WhatsApp o orçamento detalhado, com fotos do seu carro mostrando cada ponto.</span></li>
+      <li><b>Execução</b><span>Serviço feito com cuidado e registrado em fotos, do começo ao fim.</span></li>
+      <li><b>Entrega</b><span>Você confere o antes e depois. Seguimos acompanhando depois da entrega.</span></li>
+    </ol>
+  </div>
+</section>
+
+<!-- CONVERSÃO -->
+<section class="sec form-sec" id="orcamento">
+  <div class="wrap narrow">
+    <p class="kicker">Orçamento</p>
+    <h2>Peça seu orçamento</h2>
+    <p class="sub">Responda em 30 segundos. Retornamos pelo WhatsApp.</p>
+    <form id="lead" novalidate>
+      <label><span>Seu nome</span><input name="name" autocomplete="name" required></label>
+      <label><span>WhatsApp</span><input name="whatsapp" type="tel" inputmode="tel" autocomplete="tel" placeholder="(11) 99999-9999" required></label>
+      <label><span>Veículo</span><input name="vehicle" placeholder="Ex.: Onix 2020, Scania R440"></label>
+      <label><span>Serviço</span><select name="service" id="svcSel"><option value="">Ainda não sei / vários</option></select></label>
+      <label><span>Conte um pouco (opcional)</span><textarea name="message" rows="3" placeholder="Ex.: banco do motorista rasgado na lateral"></textarea></label>
+      <input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <p class="lgpd">Ao enviar, você concorda que a GSM entre em contato pelo WhatsApp sobre este orçamento.</p>
+      <button class="btn gold block" type="submit">Enviar pedido de orçamento</button>
+      <p class="err hidden" id="leadErr"></p>
+    </form>
+    <div class="ok hidden" id="leadOk">
+      <h3>Pedido recebido! ✔</h3>
+      <p>Já estamos com seus dados. Se quiser agilizar, fale direto com a gente:</p>
+      <a class="btn wa block wa-link hidden" target="_blank" rel="noopener">Falar no WhatsApp agora</a>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="logo big">G<b>S</b>M</div>
+    <p id="ftTag">Estética &amp; Tapeçaria Automotiva</p>
+    <p id="ftInfo" class="muted"></p>
+  </div>
+</footer>
+
+<div class="mbar"><a class="btn wa wa-link hidden" target="_blank" rel="noopener">WhatsApp</a><a class="btn gold" href="#orcamento">Pedir orçamento</a></div>
+<script src="/s/site.js"></script>
+</body>
+</html>

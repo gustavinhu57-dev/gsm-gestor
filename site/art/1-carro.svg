@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+<defs>
+<radialGradient id="bg" cx="50%" cy="58%" r="70%"><stop offset="0" stop-color="#2a2620"/><stop offset=".55" stop-color="#121110"/><stop offset="1" stop-color="#070707"/></radialGradient>
+<linearGradient id="body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3733"/><stop offset=".45" stop-color="#1b1a19"/><stop offset="1" stop-color="#0b0b0b"/></linearGradient>
+<linearGradient id="glass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4a4740"/><stop offset=".5" stop-color="#16161a"/><stop offset="1" stop-color="#2b2a28"/></linearGradient>
+<linearGradient id="rim" x1="0" x2="1"><stop offset="0" stop-color="#c9a227" stop-opacity="0"/><stop offset=".35" stop-color="#f3d77a"/><stop offset=".7" stop-color="#c9a227"/><stop offset="1" stop-color="#c9a227" stop-opacity="0"/></linearGradient>
+<radialGradient id="floor" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#c9a227" stop-opacity=".28"/><stop offset="1" stop-color="#c9a227" stop-opacity="0"/></radialGradient>
+<radialGradient id="wheel" cx="50%" cy="50%" r="50%"><stop offset=".55" stop-color="#2a2927"/><stop offset=".62" stop-color="#8a7a50"/><stop offset=".68" stop-color="#151514"/><stop offset="1" stop-color="#050505"/></radialGradient>
+</defs>
+<rect width="1000" height="1000" fill="url(#bg)"/>
+<ellipse cx="500" cy="660" rx="430" ry="46" fill="url(#floor)"/>
+<g transform="translate(40,250)">
+<path d="M40,370 C44,330 70,312 120,304 L250,288 C300,236 370,190 470,182 C560,176 640,200 705,262 L820,282 C866,290 888,310 892,346 L896,388 C896,398 888,404 876,404 L58,404 C46,404 38,396 40,384 Z" fill="url(#body)"/>
+<path d="M282,284 C330,240 390,212 470,206 C548,202 610,222 662,266 Z" fill="url(#glass)"/>
+<path d="M470,206 L466,284" stroke="#0b0b0b" stroke-width="10"/>
+<path d="M120,304 L250,288 C300,236 370,190 470,182 C560,176 640,200 705,262 L820,282" fill="none" stroke="url(#rim)" stroke-width="4" stroke-linecap="round"/>
+<path d="M70,346 L880,346" stroke="#c9a227" stroke-opacity=".25" stroke-width="2"/>
+<path d="M842,318 l40,6" stroke="#f3d77a" stroke-width="7" stroke-linecap="round" opacity=".9"/>
+<path d="M58,322 l30,-4" stroke="#a33" stroke-width="7" stroke-linecap="round" opacity=".8"/>
+<circle cx="230" cy="402" r="74" fill="#050505"/><circle cx="230" cy="402" r="62" fill="url(#wheel)"/>
+<circle cx="716" cy="402" r="74" fill="#050505"/><circle cx="716" cy="402" r="62" fill="url(#wheel)"/>
+</g>
+</svg>

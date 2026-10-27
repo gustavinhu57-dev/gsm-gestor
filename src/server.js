@@ -115,8 +115,14 @@ app.post('/api/public/lead', (req, res) => {
 
   const src = String(b.utm_source || '').toLowerCase();
   let originName = str(b.origin);
-  if (!originName) originName = /facebook|instagram|meta|fb|ig/.test(src) && /paid|cpc|ads|paid_social/.test(String(b.utm_medium || '').toLowerCase()) ? 'Meta Ads'
-    : /google/.test(src) ? 'Google Maps/B2B' : 'Site';
+  const med = String(b.utm_medium || '').toLowerCase();
+  const paid = /paid|cpc|ads|ppc|paid_social/.test(med) || !!b.ad_id;
+  if (!originName) {
+    originName = /facebook|instagram|meta|^fb$|^ig$/.test(src) && paid ? 'Meta Ads'
+      : /instagram|^ig$/.test(src) ? 'Instagram'
+        : /tiktok/.test(src) ? 'TikTok'
+          : /google/.test(src) ? 'Google Maps/B2B' : 'Site';
+  }
   const origin = db.prepare('SELECT id FROM origins WHERE name = ?').get(originName) || db.prepare("SELECT id FROM origins WHERE name = 'Site'").get();
   const utm = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'ad_campaign_id', 'adset_id', 'ad_id', 'creative_id'];
 
@@ -147,8 +153,43 @@ app.post('/api/public/lead', (req, res) => {
   res.json(out);
 });
 
+// ---------- Dados públicos do SITE (somente informações seguras) ----------
+app.get('/api/public/site', (req, res) => {
+  const st = getSettings();
+  const services = db.prepare("SELECT id, name, category, description FROM services WHERE active = 1 AND name != 'Outros' ORDER BY category, sort, name").all();
+  // Portfólio: SOMENTE fotos marcadas "autorizado para marketing = sim", agrupadas por serviço
+  const photos = db.prepare(`SELECT p.id, p.quote_id, p.phase, p.category, v.brand, v.model,
+      (SELECT GROUP_CONCAT(name, ' + ') FROM quote_items WHERE quote_id = p.quote_id) services
+    FROM photos p LEFT JOIN vehicles v ON v.id = p.vehicle_id WHERE p.marketing = 'sim' ORDER BY p.id DESC LIMIT 200`).all();
+  const groups = new Map();
+  for (const ph of photos) {
+    const key = ph.quote_id || 'f' + ph.id;
+    if (!groups.has(key)) groups.set(key, { services: ph.services || '', vehicle: [ph.brand, ph.model].filter(Boolean).join(' '), antes: [], depois: [], outras: [] });
+    const g = groups.get(key);
+    (ph.phase === 'antes' ? g.antes : ph.phase === 'depois' ? g.depois : g.outras).push(ph.id);
+  }
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.json({
+    company_name: st.company_name, tagline: st.company_tagline, whatsapp: normPhone(st.company_whatsapp),
+    whatsapp_display: st.company_whatsapp, instagram: st.company_instagram, address: st.company_address,
+    services, portfolio: [...groups.values()].sort((a, b) => (b.antes.length && b.depois.length) - (a.antes.length && a.depois.length)).slice(0, 12),
+  });
+});
+app.get('/p/foto/:id', (req, res) => {
+  const ph = db.prepare("SELECT filename FROM photos WHERE id = ? AND marketing = 'sim'").get(req.params.id);
+  if (!ph) return res.status(404).end();
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.sendFile(path.join(DATA_DIR, 'uploads', path.basename(ph.filename)));
+});
+
 app.use('/api', require('./api'));
-app.use(express.static(path.join(__dirname, '..', 'public'), { index: 'index.html', maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0 }));
+
+// ---------- SITE em "/" e GSM GESTOR (CRM) em "/gestor" ----------
+const cacheAge = process.env.NODE_ENV === 'production' ? '1h' : 0;
+app.use('/s', express.static(path.join(__dirname, '..', 'site'), { maxAge: cacheAge }));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, '..', 'site', 'index.html')));
+app.get(['/gestor', '/gestor/'], (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
+app.use(express.static(path.join(__dirname, '..', 'public'), { index: false, maxAge: cacheAge }));
 
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   if (err.status !== 400) console.error(err);

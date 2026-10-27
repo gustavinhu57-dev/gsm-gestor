@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+<defs>
+<linearGradient id="bol" x1="0" x2="1"><stop offset="0" stop-color="#1a120c"/><stop offset=".5" stop-color="#4b3423"/><stop offset="1" stop-color="#1d140d"/></linearGradient>
+<linearGradient id="pleat" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6a4b33"/><stop offset=".5" stop-color="#4a3322"/><stop offset="1" stop-color="#2a1c12"/></linearGradient>
+<pattern id="pl" width="1000" height="110" patternUnits="userSpaceOnUse"><rect width="1000" height="110" fill="url(#pleat)"/><rect y="104" width="1000" height="6" fill="#140d08"/></pattern>
+<radialGradient id="vig" cx="50%" cy="45%" r="75%"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".75"/></radialGradient>
+</defs>
+<rect width="1000" height="1000" fill="#0b0806"/>
+<path d="M0,0 H230 C250,300 250,700 230,1000 H0 Z" fill="url(#bol)"/>
+<path d="M1000,0 H770 C750,300 750,700 770,1000 H1000 Z" fill="url(#bol)"/>
+<path d="M260,0 H740 C722,300 722,700 740,1000 H260 C278,700 278,300 260,0 Z" fill="url(#pl)"/>
+<path d="M262,0 C280,300 280,700 262,1000 M738,0 C720,300 720,700 738,1000" stroke="#0a0705" stroke-width="10" fill="none"/>
+<path d="M290,0 C306,300 306,700 290,1000 M710,0 C694,300 694,700 710,1000" stroke="#d9b45a" stroke-width="5" stroke-dasharray="14 10" stroke-linecap="round" fill="none"/>
+<rect width="1000" height="1000" fill="url(#vig)"/>
+</svg>

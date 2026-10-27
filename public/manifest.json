@@ -1,7 +1,7 @@
 {
   "name": "GSM Gestor",
   "short_name": "GSM Gestor",
-  "start_url": "/",
+  "start_url": "/gestor",
   "display": "standalone",
   "background_color": "#111214",
   "theme_color": "#111214",

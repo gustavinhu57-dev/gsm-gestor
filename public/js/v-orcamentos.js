@@ -47,7 +47,7 @@ function photoViewer(p) {
     <div class="row"><label class="f"><span>Fase</span><select class="i" data-k="phase">${opts(m.photoPhases, p.phase)}</select></label>
     <label class="f"><span>Categoria</span><select class="i" data-k="category">${opts(m.photoCategories, p.category)}</select></label></div>
     <div class="row"><label class="f"><span>Aparece no orçamento do cliente</span><select class="i" data-k="show_client">${opts([['1', 'Sim'], ['0', 'Não']], p.show_client ? '1' : '0')}</select></label>
-    <label class="f"><span>Autorizado para marketing</span><select class="i" data-k="marketing">${opts(Object.entries(MK), p.marketing)}</select></label></div>
+    <label class="f"><span>Autorizado p/ marketing (vai pro site)</span><select class="i" data-k="marketing">${opts(Object.entries(MK), p.marketing)}</select></label></div>
     <div class="actions">${p.quote_id ? `<a class="btn" href="#/orcamento/${p.quote_id}">Abrir orçamento</a>` : ''}<a class="btn" href="/api/photos/${p.id}/file" target="_blank" download>Baixar</a><button class="btn danger" id="phd">Excluir</button></div>`, (md) => {
     $$('select[data-k]', md.el).forEach((s) => { s.onchange = async () => { const val = s.dataset.k === 'show_client' ? s.value === '1' : s.value; await run(() => put('/photos/' + p.id, { [s.dataset.k]: val })); p[s.dataset.k] = s.value; toast('Foto atualizada'); }; });
     $('a[href^="#"]', md.el)?.addEventListener('click', md.close);

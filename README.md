@@ -3,11 +3,19 @@
 CRM mobile-first da GSM — Estética & Tapeçaria Automotiva.
 Node.js + Express + SQLite + SPA em JavaScript puro (sem build).
 
+## Endereços
+- `/` — **Site GSM** (público): zoom carro → interior → banco → couro → textura → costura, serviços, resultados (antes/depois), formulário de orçamento
+- `/gestor` — **GSM Gestor** (CRM, com login)
+- `/o/<token>` — link do orçamento enviado ao cliente
+
+Fotos do zoom do site: `site/img/1-carro.jpg` … `6-costura.jpg` (arte provisória gerada a partir de `site/art/*.svg`). Substitua por fotos reais da GSM com o mesmo nome (quadradas, ~1100px).
+Links de anúncio: `/?utm_source=facebook&utm_medium=paid&utm_campaign=NOME&utm_content=CRIATIVO&ad_id=ID&servico=higienizacao`
+
 ## Rodar localmente
 ```bash
 npm install
 ADMIN_EMAIL=voce@email.com ADMIN_PASSWORD=suasenha npm start
-# abra http://localhost:3000
+# site: http://localhost:3000  ·  CRM: http://localhost:3000/gestor
 ```
 O administrador é criado no primeiro start a partir de `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 
