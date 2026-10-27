@@ -86,6 +86,18 @@ route(/^#\/financeiro$/, async (v, _, query) => {
         </div>
         <p class="tiny muted">Margem de contribuição não é lucro líquido: não considera impostos, pró-labore nem despesas fora do sistema.</p>
       </div>
+      ${(() => {
+        const st = S.meta.settings; const base = Math.max(0, T.margem);
+        const p1 = Number(st.split_socio1) || 0; const p2 = Number(st.split_socio2) || 0; const pc = Number(st.split_caixa) || 0;
+        const meta = Number(st.prolabore_meta) || 0; const caixaLiq = base * pc / 100 - T.despesas;
+        const share = (nome, p) => line(`${esc(nome)} (${p}%)`, `${brl(base * p / 100)}${meta ? ` <span class="tiny ${base * p / 100 >= meta ? 'green' : 'red'}">meta ${brl0(meta)}</span>` : ''}`);
+        return `<div class="card"><h2>Divisão da margem ${p1}/${p2}/${pc}</h2>
+          <p class="tiny muted" style="margin-top:0">Base = margem de contribuição (faturamento − material). Material sai antes da divisão.</p>
+          ${share(st.split_socio1_nome, p1)}${share(st.split_socio2_nome, p2)}
+          ${line(`Caixa da empresa (${pc}%)`, brl(base * pc / 100))}
+          ${line('(−) Despesas operacionais', brl(T.despesas), 'red')}
+          ${line('= Caixa líquido', brl(caixaLiq), caixaLiq < 0 ? 'red' : 'green', true)}</div>`;
+      })()}
       <div class="card"><h2>Custos diretos por categoria</h2>
         ${f.costsByCat.map((c) => line(esc(c.category), brl(c.total))).join('') || '<div class="small muted">Nenhum custo lançado nos serviços do período</div>'}
         <h2 style="margin-top:16px">Despesas por categoria</h2>
@@ -171,6 +183,9 @@ route(/^#\/config$/, async (v) => {
       <label class="f"><span>Endereço</span><input class="i" name="company_address" value="${esc(s.company_address)}"></label>
       <div class="row"><label class="f"><span>Validade padrão (dias)</span><input class="i" name="quote_validity_days" inputmode="numeric" value="${esc(s.quote_validity_days)}"></label>
       <label class="f"><span>Follow-up após envio (dias)</span><input class="i" name="followup_after_send_days" inputmode="numeric" value="${esc(s.followup_after_send_days)}"></label></div>
+      <div class="row"><label class="f"><span>Sócio 1</span><input class="i" name="split_socio1_nome" value="${esc(s.split_socio1_nome)}"></label><label class="f"><span>% sócio 1</span><input class="i" name="split_socio1" inputmode="numeric" value="${esc(s.split_socio1)}"></label></div>
+      <div class="row"><label class="f"><span>Sócio 2</span><input class="i" name="split_socio2_nome" value="${esc(s.split_socio2_nome)}"></label><label class="f"><span>% sócio 2</span><input class="i" name="split_socio2" inputmode="numeric" value="${esc(s.split_socio2)}"></label></div>
+      <div class="row"><label class="f"><span>% caixa da empresa</span><input class="i" name="split_caixa" inputmode="numeric" value="${esc(s.split_caixa)}"></label><label class="f"><span>Meta de pró-labore (R$/mês)</span><input class="i" name="prolabore_meta" inputmode="numeric" value="${esc(s.prolabore_meta)}"></label></div>
       <label class="f"><span>Mensagem do WhatsApp — variáveis: {nome} {veiculo} {itens} {total} {link} {validade}</span><textarea class="i" name="quote_message" rows="7">${esc(s.quote_message)}</textarea></label>
       <button class="btn gold" ${admin ? '' : 'disabled'}>Salvar</button></form></div>
 

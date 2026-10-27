@@ -86,11 +86,11 @@ async function quoteForm(v, existing, query) {
   const m = S.meta;
   const st = {
     client: null, vehicle_id: null, items: [], discount: 0, surcharge: 0, notes: '', internal_notes: '',
-    validity_days: Number(m.settings.quote_validity_days) || 7, photos: [],
+    validity_days: Number(m.settings.quote_validity_days) || 7, photos: [], size: 'P',
   };
   if (existing) {
-    Object.assign(st, { vehicle_id: existing.vehicle_id, discount: existing.discount, surcharge: existing.surcharge, notes: existing.notes || '', internal_notes: existing.internal_notes || '', validity_days: existing.validity_days });
-    st.items = existing.items.map((i) => ({ service_id: i.service_id, name: i.name, price: i.price }));
+    Object.assign(st, { size: existing.vehicle_size || 'P', vehicle_id: existing.vehicle_id, discount: existing.discount, surcharge: existing.surcharge, notes: existing.notes || '', internal_notes: existing.internal_notes || '', validity_days: existing.validity_days });
+    st.items = existing.items.map((i) => ({ service_id: i.service_id, name: i.name, price: i.price, cost: i.cost }));
     st.client = await api('/clients/' + existing.client_id);
   } else if (query.client) {
     st.client = await api('/clients/' + query.client);
@@ -105,7 +105,8 @@ async function quoteForm(v, existing, query) {
     <section class="qq-section"><h2><span class="step-n" id="n1">1</span> Cliente</h2><div id="qqClient"></div></section>
     <section class="qq-section" id="secVeh"><h2><span class="step-n" id="n2">2</span> Veículo</h2><div id="qqVehicle"></div></section>
     <section class="qq-section"><h2><span class="step-n" id="n3">3</span> Serviços</h2>
-      ${cats.map((c) => `<div class="small muted bold" style="margin:6px 0">${esc(c)}</div><div class="svc-grid">${services.filter((s) => (s.category || 'Outros') === c).map((s) => `<button type="button" class="svc-btn" data-add="${s.id}"><b>${esc(s.name)}</b><span>${s.price ? brl(s.price) : 'preço livre'}</span></button>`).join('')}</div>`).join('')}
+      <div class="opt-list" id="qqSize" style="margin-bottom:10px"><button type="button" class="opt" data-size="P">Carro pequeno</button><button type="button" class="opt" data-size="G">Carro grande / SUV</button></div>
+      ${cats.map((c) => `<div class="small muted bold" style="margin:6px 0">${esc(c)}</div><div class="svc-grid">${services.filter((s) => (s.category || 'Outros') === c).map((s) => `<button type="button" class="svc-btn" data-add="${s.id}"><b>${esc(s.name)}</b><span data-pr="${s.id}"></span></button>`).join('')}</div>`).join('')}
       <div id="qqItems" style="margin-top:14px"></div>
       <button type="button" class="btn sm" id="qqFree">${icon('plus')} Item avulso</button>
       <div class="totals">
@@ -212,10 +213,25 @@ async function quoteForm(v, existing, query) {
     $$('[data-prm]').forEach((b) => { b.onclick = () => { URL.revokeObjectURL(st.photos[b.dataset.prm].url); st.photos.splice(b.dataset.prm, 1); renderPhotos(); }; });
   };
 
+  // Preço e custo conforme o porte do veículo (P = pequeno, G = grande)
+  const priceOf = (s) => (st.size === 'G' && s.price_large != null ? s.price_large : s.price);
+  const costOf = (s) => (st.size === 'G' && s.cost_large != null ? s.cost_large : s.cost) || 0;
+  const renderSize = () => {
+    $$('#qqSize [data-size]').forEach((b) => b.classList.toggle('active', b.dataset.size === st.size));
+    services.forEach((s) => { const el = $(`[data-pr="${s.id}"]`); if (el) el.textContent = priceOf(s) ? brl(priceOf(s)) : 'preço a combinar'; });
+  };
+  $$('#qqSize [data-size]').forEach((b) => {
+    b.onclick = () => {
+      st.size = b.dataset.size;
+      // reprecifica os itens da tabela que têm preço diferente por porte
+      st.items.forEach((it) => { const s = services.find((x) => x.id === it.service_id); if (s && s.price_large != null) { it.price = priceOf(s); it.cost = costOf(s); } });
+      renderSize(); renderItems();
+    };
+  });
   $$('[data-add]').forEach((b) => {
     b.onclick = () => {
       const s = services.find((x) => x.id == b.dataset.add);
-      st.items.push({ service_id: s.id, name: s.name, price: s.price });
+      st.items.push({ service_id: s.id, name: s.name, price: priceOf(s), cost: costOf(s) });
       renderItems();
     };
   });
@@ -229,7 +245,7 @@ async function quoteForm(v, existing, query) {
     st.items = st.items.filter((i) => String(i.name).trim());
     if (!st.items.length) { toast('Adicione pelo menos um serviço', true); renderItems(); return; }
     const body = {
-      client_id: st.client.id, vehicle_id: st.vehicle_id, items: st.items, discount: st.discount, surcharge: st.surcharge,
+      client_id: st.client.id, vehicle_id: st.vehicle_id, vehicle_size: st.size, items: st.items, discount: st.discount, surcharge: st.surcharge,
       notes: $('#qqNotes').value, internal_notes: $('#qqInt').value, validity_days: $('#qqVal').value,
     };
     $('#qqSave').disabled = $('#qqShare').disabled = true;
@@ -249,7 +265,7 @@ async function quoteForm(v, existing, query) {
   };
   $('#qqSave').onclick = () => save(false);
   $('#qqShare').onclick = () => save(true);
-  renderClient(); renderVehicle(); renderItems(); renderPhotos();
+  renderSize(); renderClient(); renderVehicle(); renderItems(); renderPhotos();
 }
 
 // ---------- COMPARTILHAR / ENVIAR ----------

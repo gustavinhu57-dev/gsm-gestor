@@ -142,8 +142,8 @@ app.post('/api/public/lead', (req, res) => {
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(client.id, vehicleId, 'criado', str(b.source) || 'site', str(b.service), null, str(b.message),
       crypto.randomBytes(18).toString('base64url'), 'Site', now(), now()).lastInsertRowid;
     if (b.service) {
-      const svc = db.prepare('SELECT id, name, price FROM services WHERE active = 1 AND name LIKE ?').get(`%${b.service}%`);
-      if (svc) db.prepare('INSERT INTO quote_items(quote_id, service_id, name, price) VALUES (?,?,?,?)').run(qid, svc.id, svc.name, svc.price);
+      const svc = db.prepare('SELECT id, name, price, cost FROM services WHERE active = 1 AND name LIKE ?').get(`%${b.service}%`);
+      if (svc) db.prepare('INSERT INTO quote_items(quote_id, service_id, name, price, cost) VALUES (?,?,?,?,?)').run(qid, svc.id, svc.name, svc.price, svc.cost || 0);
       recalcQuote(qid);
     }
     advanceStage(client.id, 'novo');

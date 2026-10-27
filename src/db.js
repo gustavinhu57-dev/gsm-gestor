@@ -126,6 +126,42 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 const hasCol = (t, c) => db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c);
 if (!hasCol('photos', 'show_client')) db.exec('ALTER TABLE photos ADD COLUMN show_client INTEGER NOT NULL DEFAULT 0');
 if (!hasCol('quotes', 'link_active')) db.exec('ALTER TABLE quotes ADD COLUMN link_active INTEGER NOT NULL DEFAULT 1');
+// Preço por porte (carro pequeno / grande) e custo direto de material por serviço
+if (!hasCol('services', 'price_large')) db.exec('ALTER TABLE services ADD COLUMN price_large REAL');
+if (!hasCol('services', 'cost')) db.exec('ALTER TABLE services ADD COLUMN cost REAL NOT NULL DEFAULT 0');
+if (!hasCol('services', 'cost_large')) db.exec('ALTER TABLE services ADD COLUMN cost_large REAL');
+if (!hasCol('quote_items', 'cost')) db.exec('ALTER TABLE quote_items ADD COLUMN cost REAL NOT NULL DEFAULT 0');
+if (!hasCol('quotes', 'vehicle_size')) db.exec("ALTER TABLE quotes ADD COLUMN vehicle_size TEXT DEFAULT 'P'");
+
+// Tabela oficial GSM (out/2026). Custos de estética = estimativa de produtos do kit Vonixx (preço médio de mercado);
+// custos de tapeçaria = tabela GSM (material). Preço 0 = "a definir / varia".
+const CATALOG_V2 = [
+  // nome, categoria, preço P, preço G, custo P, custo G, descrição (aparece para o cliente)
+  ['Ducha', 'Lavagem', 20, 20, 1, 1, 'Enxágue rápido'],
+  ['Lavagem simples', 'Lavagem', 45, 90, 7, 10, 'Lavagem externa com pneus'],
+  ['Lavagem de manutenção', 'Lavagem', 60, 120, 9, 13, 'Externa + limpeza interna rápida'],
+  ['Lavagem com antirrepelência', 'Lavagem', 70, 140, 9, 13, 'Lavagem + proteção que repele água'],
+  ['Lavagem detalhada', 'Lavagem', 120, 220, 18, 26, 'Lavagem completa com acabamento e cera'],
+  ['Descontaminação de pintura', 'Lavagem', 140, 190, 18, 26, 'Remove contaminantes presos na pintura'],
+  ['Enceramento técnico', 'Lavagem', 170, 290, 22, 32, 'Proteção e brilho da pintura'],
+  ['Lavagem do motor', 'Lavagem', 100, 100, 9, 9, 'Limpeza e proteção do cofre do motor'],
+  ['Mini higienização', 'Higienização', 180, 450, 8, 15, 'Higienização interna parcial'],
+  ['Higienização', 'Higienização', 550, 550, 25, 30, 'Higienização interna completa: bancos, carpete e teto'],
+  ['Polimento comercial', 'Polimento', 500, 700, 0, 0, 'Recupera brilho e remove riscos leves'],
+  ['Polimento técnico', 'Polimento', 900, 1200, 0, 0, 'Correção de pintura (a partir de)'],
+  ['Restauração de farol', 'Polimento', 0, 0, 0, 0, 'Faróis transparentes de novo'],
+  ['Capa de carro', 'Tapeçaria', 400, null, 200, null, 'Capas sob medida para os bancos'],
+  ['Banco acoplado pra carro', 'Tapeçaria', 550, null, 300, null, 'Revestimento de banco'],
+  ['Volante e suportes', 'Tapeçaria', 270, null, 100, null, 'Revestimento de volante'],
+  ['Painel e colchão', 'Tapeçaria', 600, null, 300, null, 'Revestimento de painel e colchão'],
+  ['Carpete e teto', 'Tapeçaria', 900, null, 400, null, 'Troca de carpete e forro de teto'],
+  ['Capa de caminhão', 'Caminhão', 700, null, 300, null, 'Capas sob medida para caminhão — entrega em 2 dias'],
+  ['Banco de moto', 'Moto', 350, null, 100, null, 'Reforma do banco da moto'],
+  ['Sofá retrátil', 'Sofá / residencial', 0, null, 250, null, 'Reforma de sofá retrátil'],
+  ['Restauração de cadeira', 'Sofá / residencial', 0, null, 0, null, 'Reforma de cadeiras'],
+  ['Outros', 'Outros', 0, null, 0, null, 'Serviço avulso'],
+];
+
 
 // ---------- Seeds (rodam só uma vez) ----------
 function seed() {
@@ -135,21 +171,6 @@ function seed() {
     ['Lista Gustavo', 'Lista Barbosa', 'Meta Ads', 'Instagram', 'TikTok', 'Site', 'WhatsApp', 'Indicação',
       'Cliente antigo', 'Presencial', 'Parceiro', 'Google Maps/B2B', 'Cliente recorrente', 'Outros']
       .forEach((n, i) => ins.run(n, i));
-  }
-  const hasServices = db.prepare('SELECT COUNT(*) c FROM services').get().c;
-  if (!hasServices) {
-    const ins = db.prepare('INSERT INTO services(name, category, price, description, sort) VALUES (?,?,?,?,?)');
-    [
-      ['Higienização', 'Estética', 220, 'Higienização interna completa'],
-      ['Polimento', 'Estética', 400, 'Polimento técnico da pintura'],
-      ['Restauração de farol', 'Estética', 150, 'Par de faróis'],
-      ['Banco automotivo', 'Tapeçaria', 350, 'Reforma/revestimento de banco'],
-      ['Banco de caminhão', 'Tapeçaria', 450, 'Reforma de banco de caminhão'],
-      ['Revestimento', 'Tapeçaria', 300, 'Revestimento interno'],
-      ['Volante', 'Tapeçaria', 250, 'Revestimento de volante'],
-      ['Tapeçaria', 'Tapeçaria', 400, 'Teto, forros e acabamentos'],
-      ['Outros', 'Outros', 0, 'Serviço avulso'],
-    ].forEach((s, i) => ins.run(...s, i));
   }
   const hasCampaign = db.prepare('SELECT COUNT(*) c FROM campaigns').get().c;
   if (!hasCampaign) {
@@ -165,12 +186,28 @@ function seed() {
     company_address: '',
     quote_validity_days: '7',
     followup_after_send_days: '2',
+    // Divisão da margem (receita − material): sócio 1 / sócio 2 / caixa da empresa
+    split_socio1_nome: 'Gustavo', split_socio1: '40',
+    split_socio2_nome: 'Barbosa', split_socio2: '40',
+    split_caixa: '20', prolabore_meta: '2000',
     quote_message: 'Olá {nome}! Tudo bem? Segue o orçamento da *GSM — Estética & Tapeçaria Automotiva*{veiculo}:\n\n{itens}\n\n*TOTAL: {total}*\n\nVer orçamento completo: {link}\n\nValidade: {validade} dias. Qualquer dúvida estou à disposição!',
   };
   const insS = db.prepare('INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)');
   Object.entries(defaults).forEach(([k, v]) => insS.run(k, v));
 }
 seed();
+
+// Aplica a tabela oficial uma única vez: desativa o catálogo provisório (mantém histórico) e insere o oficial
+(function applyCatalogV2() {
+  if (db.prepare("SELECT 1 FROM settings WHERE key = 'catalog_version' AND value >= '2'").get()) return;
+  db.transaction(() => {
+    db.prepare('UPDATE services SET active = 0').run();
+    const ins = db.prepare('INSERT INTO services(name, category, price, price_large, cost, cost_large, description, sort) VALUES (?,?,?,?,?,?,?,?)');
+    CATALOG_V2.forEach((s, i) => ins.run(...s, i));
+    db.prepare("INSERT OR IGNORE INTO origins(name, sort) VALUES ('Fachada (passou na frente)', 9)").run();
+    db.prepare("INSERT INTO settings(key, value) VALUES ('catalog_version', '2') ON CONFLICT(key) DO UPDATE SET value = '2'").run();
+  })();
+})();
 
 function getSettings() {
   return Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((r) => [r.key, r.value]));

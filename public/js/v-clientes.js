@@ -202,22 +202,27 @@ route(/^#\/servicos$/, async (v) => {
     ${cats.map((cat) => `<div class="card tight"><h2 style="padding:14px 14px 0">${esc(cat)}</h2><div class="list">
       ${list.filter((s) => (s.category || 'Outros') === cat).map((s) => `<div class="item" data-s="${s.id}"><div class="main">
         <div class="title">${esc(s.name)} ${s.active ? '' : '<span class="tag red">inativo</span>'}</div><div class="sub">${esc(s.description || '')}</div></div>
-        <div class="val">${brl(s.price)}</div></div>`).join('')}</div></div>`).join('')}`;
+        <div class="val">${svcPrice(s)}<div class="tiny muted" style="font-weight:600">${s.cost ? 'custo ' + brl(s.cost) + (s.cost_large != null && s.cost_large !== s.cost ? ' / ' + brl(s.cost_large) : '') : 'custo a definir'}</div></div></div>`).join('')}</div></div>`).join('')}`;
   $('#ns', v).onclick = () => serviceForm();
   $$('[data-s]', v).forEach((el) => { el.onclick = () => serviceForm(list.find((s) => s.id == el.dataset.s)); });
 });
+const svcPrice = (s) => (!s.price ? '<span class="amber">a definir</span>' : s.price_large != null && s.price_large !== s.price ? `P ${brl(s.price)}<br>G ${brl(s.price_large)}` : brl(s.price));
 function serviceForm(s = { active: 1 }) {
-  const cats = [...new Set(['Estética', 'Tapeçaria', 'Outros', ...S.meta.services.map((x) => x.category).filter(Boolean)])];
+  const cats = [...new Set(['Lavagem', 'Higienização', 'Polimento', 'Tapeçaria', 'Caminhão', 'Moto', 'Sofá / residencial', 'Outros', ...S.meta.services.map((x) => x.category).filter(Boolean)])];
   modal(s.id ? 'Editar serviço' : 'Novo serviço', `<form id="sf">
     <label class="f"><span>Nome *</span><input class="i" name="name" value="${esc(s.name)}" required></label>
     <div class="row"><label class="f"><span>Categoria</span><input class="i" name="category" list="cats" value="${esc(s.category)}"><datalist id="cats">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label>
-    <label class="f"><span>Preço padrão (R$)</span><input class="i" name="price" inputmode="decimal" value="${s.price ?? ''}"></label></div>
+    <label class="f"><span>Preço carro pequeno (R$)</span><input class="i" name="price" inputmode="decimal" value="${s.price ?? ''}"></label></div>
+    <div class="row"><label class="f"><span>Preço carro grande (vazio = igual)</span><input class="i" name="price_large" inputmode="decimal" value="${s.price_large ?? ''}"></label>
+    <label class="f"><span>Custo material (R$)</span><input class="i" name="cost" inputmode="decimal" value="${s.cost ?? ''}"></label>
+    <label class="f"><span>Custo carro grande</span><input class="i" name="cost_large" inputmode="decimal" value="${s.cost_large ?? ''}"></label></div>
     <label class="f"><span>Descrição curta</span><input class="i" name="description" value="${esc(s.description)}"></label>
     <label class="f row" style="align-items:center"><input type="checkbox" name="active" class="auto" style="width:22px;height:22px" ${s.active ? 'checked' : ''}> <span style="margin:0">Ativo (aparece no orçamento)</span></label>
     <button class="btn gold block lg">Salvar</button></form>`, (md) => {
     $('#sf', md.el).onsubmit = async (e) => {
       e.preventDefault();
       const d = formData(e.target); d.active = !!d.active; d.price = num(d.price);
+      ['price_large', 'cost_large'].forEach((k) => { d[k] = d[k] === '' ? null : num(d[k]); }); d.cost = num(d.cost);
       await run(() => (s.id ? put('/services/' + s.id, d) : post('/services', d)));
       md.close(); toast('Serviço salvo'); await loadMeta(); reload();
     };

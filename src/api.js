@@ -80,18 +80,19 @@ r.put('/origins/:id', wrap((req) => {
 }));
 
 // =================== SERVIÇOS / PREÇOS ===================
+const optNum = (v) => (v === undefined || v === null || String(v).trim() === '' ? null : num(v));
 r.get('/services', wrap(() => db.prepare('SELECT * FROM services ORDER BY active DESC, category, sort, name').all()));
 r.post('/services', wrap((req, res) => {
   const b = req.body;
   if (!str(b.name)) return bad(res, 'Informe o nome do serviço');
-  const info = db.prepare('INSERT INTO services(name, category, price, description, active, sort) VALUES (?,?,?,?,?,99)')
-    .run(str(b.name), str(b.category), num(b.price), str(b.description), b.active === false ? 0 : 1);
+  const info = db.prepare('INSERT INTO services(name, category, price, price_large, cost, cost_large, description, active, sort) VALUES (?,?,?,?,?,?,?,?,99)')
+    .run(str(b.name), str(b.category), num(b.price), optNum(b.price_large), num(b.cost), optNum(b.cost_large), str(b.description), b.active === false ? 0 : 1);
   return { id: info.lastInsertRowid };
 }));
 r.put('/services/:id', wrap((req) => {
   const b = req.body;
-  db.prepare('UPDATE services SET name = ?, category = ?, price = ?, description = ?, active = ? WHERE id = ?')
-    .run(str(b.name), str(b.category), num(b.price), str(b.description), b.active ? 1 : 0, req.params.id);
+  db.prepare('UPDATE services SET name = ?, category = ?, price = ?, price_large = ?, cost = ?, cost_large = ?, description = ?, active = ? WHERE id = ?')
+    .run(str(b.name), str(b.category), num(b.price), optNum(b.price_large), num(b.cost), optNum(b.cost_large), str(b.description), b.active ? 1 : 0, req.params.id);
   return { ok: true };
 }));
 
@@ -233,8 +234,8 @@ r.delete('/vehicles/:id', wrap((req) => { db.prepare('DELETE FROM vehicles WHERE
 // =================== ORÇAMENTOS ===================
 function saveItems(quoteId, items) {
   db.prepare('DELETE FROM quote_items WHERE quote_id = ?').run(quoteId);
-  const ins = db.prepare('INSERT INTO quote_items(quote_id, service_id, name, price, sort) VALUES (?,?,?,?,?)');
-  (items || []).forEach((it, i) => { if (str(it.name)) ins.run(quoteId, it.service_id || null, str(it.name), num(it.price), i); });
+  const ins = db.prepare('INSERT INTO quote_items(quote_id, service_id, name, price, cost, sort) VALUES (?,?,?,?,?,?)');
+  (items || []).forEach((it, i) => { if (str(it.name)) ins.run(quoteId, it.service_id || null, str(it.name), num(it.price), num(it.cost), i); });
   recalcQuote(quoteId);
 }
 function getQuote(id) {
@@ -274,8 +275,8 @@ r.post('/quotes', wrap((req, res) => {
   if (!client) return bad(res, 'Selecione o cliente');
   const s = getSettings();
   const id = db.transaction(() => {
-    const qid = db.prepare(`INSERT INTO quotes(client_id, vehicle_id, status, source, discount, surcharge, notes, internal_notes, validity_days, public_token, created_by, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(client.id, b.vehicle_id || null, 'criado', b.source || 'manual', num(b.discount), num(b.surcharge),
+    const qid = db.prepare(`INSERT INTO quotes(client_id, vehicle_id, vehicle_size, status, source, discount, surcharge, notes, internal_notes, validity_days, public_token, created_by, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(client.id, b.vehicle_id || null, b.vehicle_size === 'G' ? 'G' : 'P', 'criado', b.source || 'manual', num(b.discount), num(b.surcharge),
       str(b.notes), str(b.internal_notes), Number(b.validity_days) || Number(s.quote_validity_days) || 7,
       crypto.randomBytes(18).toString('base64url'), req.user.name, now(), now()).lastInsertRowid;
     saveItems(qid, b.items);
@@ -291,8 +292,8 @@ r.put('/quotes/:id', wrap((req, res) => {
   const q = db.prepare('SELECT * FROM quotes WHERE id = ?').get(req.params.id);
   if (!q) return bad(res, 'Orçamento não encontrado', 404);
   db.transaction(() => {
-    db.prepare('UPDATE quotes SET vehicle_id = ?, discount = ?, surcharge = ?, notes = ?, internal_notes = ?, validity_days = ?, updated_at = ? WHERE id = ?')
-      .run(b.vehicle_id || null, num(b.discount), num(b.surcharge), str(b.notes), str(b.internal_notes), Number(b.validity_days) || q.validity_days, now(), q.id);
+    db.prepare('UPDATE quotes SET vehicle_id = ?, vehicle_size = ?, discount = ?, surcharge = ?, notes = ?, internal_notes = ?, validity_days = ?, updated_at = ? WHERE id = ?')
+      .run(b.vehicle_id || null, b.vehicle_size === 'G' ? 'G' : 'P', num(b.discount), num(b.surcharge), str(b.notes), str(b.internal_notes), Number(b.validity_days) || q.validity_days, now(), q.id);
     saveItems(q.id, b.items);
     logEvent(q.client_id, q.id, 'orcamento', `Orçamento #${q.id} editado`, req.user);
   })();
@@ -353,6 +354,12 @@ r.post('/quotes/:id/status', wrap((req, res) => {
       closeFollowups('Serviço executado');
       advanceStage(q.client_id, 'executado');
       logEvent(q.client_id, q.id, 'servico', `Serviço do orçamento #${q.id} executado`, req.user);
+      // Lança automaticamente o custo de material da tabela (editável), se ainda não houver custos
+      if (!db.prepare('SELECT 1 FROM costs WHERE quote_id = ?').get(q.id)) {
+        const insC = db.prepare('INSERT INTO costs(quote_id, category, description, amount, created_at) VALUES (?,?,?,?,?)');
+        db.prepare('SELECT name, cost FROM quote_items WHERE quote_id = ? AND cost > 0').all(q.id)
+          .forEach((it) => insC.run(q.id, 'Material', `${it.name} (tabela)`, it.cost, now()));
+      }
       checkPaid(q.id);
     } else if (st === 'standby') {
       if (!b.reason) throw Object.assign(new Error('Informe o motivo do stand-by'), { status: 400 });
