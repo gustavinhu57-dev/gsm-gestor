@@ -85,14 +85,14 @@ r.get('/services', wrap(() => db.prepare('SELECT * FROM services ORDER BY active
 r.post('/services', wrap((req, res) => {
   const b = req.body;
   if (!str(b.name)) return bad(res, 'Informe o nome do serviço');
-  const info = db.prepare('INSERT INTO services(name, category, price, price_large, cost, cost_large, description, active, sort) VALUES (?,?,?,?,?,?,?,?,99)')
-    .run(str(b.name), str(b.category), num(b.price), optNum(b.price_large), num(b.cost), optNum(b.cost_large), str(b.description), b.active === false ? 0 : 1);
+  const info = db.prepare('INSERT INTO services(name, category, price, price_large, cost, cost_large, op_cost, op_cost_large, description, active, sort) VALUES (?,?,?,?,?,?,?,?,?,?,99)')
+    .run(str(b.name), str(b.category), num(b.price), optNum(b.price_large), num(b.cost), optNum(b.cost_large), num(b.op_cost), optNum(b.op_cost_large), str(b.description), b.active === false ? 0 : 1);
   return { id: info.lastInsertRowid };
 }));
 r.put('/services/:id', wrap((req) => {
   const b = req.body;
-  db.prepare('UPDATE services SET name = ?, category = ?, price = ?, price_large = ?, cost = ?, cost_large = ?, description = ?, active = ? WHERE id = ?')
-    .run(str(b.name), str(b.category), num(b.price), optNum(b.price_large), num(b.cost), optNum(b.cost_large), str(b.description), b.active ? 1 : 0, req.params.id);
+  db.prepare('UPDATE services SET name = ?, category = ?, price = ?, price_large = ?, cost = ?, cost_large = ?, op_cost = ?, op_cost_large = ?, description = ?, active = ? WHERE id = ?')
+    .run(str(b.name), str(b.category), num(b.price), optNum(b.price_large), num(b.cost), optNum(b.cost_large), num(b.op_cost), optNum(b.op_cost_large), str(b.description), b.active ? 1 : 0, req.params.id);
   return { ok: true };
 }));
 
@@ -234,8 +234,8 @@ r.delete('/vehicles/:id', wrap((req) => { db.prepare('DELETE FROM vehicles WHERE
 // =================== ORÇAMENTOS ===================
 function saveItems(quoteId, items) {
   db.prepare('DELETE FROM quote_items WHERE quote_id = ?').run(quoteId);
-  const ins = db.prepare('INSERT INTO quote_items(quote_id, service_id, name, price, cost, sort) VALUES (?,?,?,?,?,?)');
-  (items || []).forEach((it, i) => { if (str(it.name)) ins.run(quoteId, it.service_id || null, str(it.name), num(it.price), num(it.cost), i); });
+  const ins = db.prepare('INSERT INTO quote_items(quote_id, service_id, name, price, cost, op_cost, sort) VALUES (?,?,?,?,?,?,?)');
+  (items || []).forEach((it, i) => { if (str(it.name)) ins.run(quoteId, it.service_id || null, str(it.name), num(it.price), num(it.cost), num(it.op_cost), i); });
   recalcQuote(quoteId);
 }
 function getQuote(id) {
@@ -561,6 +561,9 @@ function financeData(from, to) {
   const executed = db.prepare(`${QUOTE_SELECT} WHERE q.status = 'executado' AND substr(q.executed_at,1,10) BETWEEN ? AND ? ORDER BY q.executed_at DESC`).all(from, to);
   const faturamento = executed.reduce((s, q) => s + q.total, 0);
   const custos = executed.reduce((s, q) => s + q.costs_total, 0);
+  // Custo operacional estimado (panos, desgaste, boina) dos serviços executados: sai do caixa da empresa
+  const custoOp = db.prepare(`SELECT COALESCE(SUM(i.op_cost),0) s FROM quote_items i JOIN quotes q ON q.id = i.quote_id
+    WHERE q.status = 'executado' AND substr(q.executed_at,1,10) BETWEEN ? AND ?`).get(from, to).s;
   const recebido = db.prepare('SELECT COALESCE(SUM(amount),0) s FROM payments WHERE paid_at BETWEEN ? AND ?').get(from, to).s;
   const aReceber = db.prepare(`SELECT COALESCE(SUM(q.total - COALESCE((SELECT SUM(amount) FROM payments WHERE quote_id = q.id),0)),0) s
     FROM quotes q WHERE q.status = 'executado'`).get().s;
@@ -574,7 +577,7 @@ function financeData(from, to) {
     from, to, executed, expenses, costsByCat,
     expensesByCat: Object.entries(expByCat).map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total),
     totals: {
-      faturamento, recebido, a_receber: Math.max(0, aReceber), custos, margem: faturamento - custos,
+      faturamento, recebido, a_receber: Math.max(0, aReceber), custos, custo_operacional: custoOp, margem: faturamento - custos,
       margem_pct: faturamento ? (faturamento - custos) / faturamento : 0, despesas, resultado: faturamento - custos - despesas,
     },
   };

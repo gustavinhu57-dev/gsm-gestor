@@ -202,7 +202,7 @@ route(/^#\/servicos$/, async (v) => {
     ${cats.map((cat) => `<div class="card tight"><h2 style="padding:14px 14px 0">${esc(cat)}</h2><div class="list">
       ${list.filter((s) => (s.category || 'Outros') === cat).map((s) => `<div class="item" data-s="${s.id}"><div class="main">
         <div class="title">${esc(s.name)} ${s.active ? '' : '<span class="tag red">inativo</span>'}</div><div class="sub">${esc(s.description || '')}</div></div>
-        <div class="val">${svcPrice(s)}<div class="tiny muted" style="font-weight:600">${s.cost ? 'custo ' + brl(s.cost) + (s.cost_large != null && s.cost_large !== s.cost ? ' / ' + brl(s.cost_large) : '') : 'custo a definir'}</div></div></div>`).join('')}</div></div>`).join('')}`;
+        <div class="val">${svcPrice(s)}<div class="tiny muted" style="font-weight:600">${s.cost ? 'material ' + brl(s.cost) + (s.cost_large != null && s.cost_large !== s.cost ? ' / ' + brl(s.cost_large) : '') : 'material a definir'}</div><div class="tiny muted" style="font-weight:600">operacional ${brl(s.op_cost || 0)}${s.op_cost_large != null && s.op_cost_large !== s.op_cost ? ' / ' + brl(s.op_cost_large) : ''}</div></div></div>`).join('')}</div></div>`).join('')}`;
   $('#ns', v).onclick = () => serviceForm();
   $$('[data-s]', v).forEach((el) => { el.onclick = () => serviceForm(list.find((s) => s.id == el.dataset.s)); });
 });
@@ -216,13 +216,16 @@ function serviceForm(s = { active: 1 }) {
     <div class="row"><label class="f"><span>Preço carro grande (vazio = igual)</span><input class="i" name="price_large" inputmode="decimal" value="${s.price_large ?? ''}"></label>
     <label class="f"><span>Custo material (R$)</span><input class="i" name="cost" inputmode="decimal" value="${s.cost ?? ''}"></label>
     <label class="f"><span>Custo carro grande</span><input class="i" name="cost_large" inputmode="decimal" value="${s.cost_large ?? ''}"></label></div>
+    <div class="row"><label class="f"><span>Custo operacional (panos, desgaste)</span><input class="i" name="op_cost" inputmode="decimal" value="${s.op_cost ?? ''}"></label>
+    <label class="f"><span>Operacional carro grande</span><input class="i" name="op_cost_large" inputmode="decimal" value="${s.op_cost_large ?? ''}"></label></div>
+    <p class="tiny muted" style="margin-top:0">Material: pago pelo cliente, sai antes da divisão. Operacional: pago pelo caixa da empresa.</p>
     <label class="f"><span>Descrição curta</span><input class="i" name="description" value="${esc(s.description)}"></label>
     <label class="f row" style="align-items:center"><input type="checkbox" name="active" class="auto" style="width:22px;height:22px" ${s.active ? 'checked' : ''}> <span style="margin:0">Ativo (aparece no orçamento)</span></label>
     <button class="btn gold block lg">Salvar</button></form>`, (md) => {
     $('#sf', md.el).onsubmit = async (e) => {
       e.preventDefault();
       const d = formData(e.target); d.active = !!d.active; d.price = num(d.price);
-      ['price_large', 'cost_large'].forEach((k) => { d[k] = d[k] === '' ? null : num(d[k]); }); d.cost = num(d.cost);
+      ['price_large', 'cost_large', 'op_cost_large'].forEach((k) => { d[k] = d[k] === '' ? null : num(d[k]); }); d.cost = num(d.cost); d.op_cost = num(d.op_cost);
       await run(() => (s.id ? put('/services/' + s.id, d) : post('/services', d)));
       md.close(); toast('Serviço salvo'); await loadMeta(); reload();
     };

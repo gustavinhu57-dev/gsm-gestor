@@ -90,7 +90,7 @@ async function quoteForm(v, existing, query) {
   };
   if (existing) {
     Object.assign(st, { size: existing.vehicle_size || 'P', vehicle_id: existing.vehicle_id, discount: existing.discount, surcharge: existing.surcharge, notes: existing.notes || '', internal_notes: existing.internal_notes || '', validity_days: existing.validity_days });
-    st.items = existing.items.map((i) => ({ service_id: i.service_id, name: i.name, price: i.price, cost: i.cost }));
+    st.items = existing.items.map((i) => ({ service_id: i.service_id, name: i.name, price: i.price, cost: i.cost, op_cost: i.op_cost }));
     st.client = await api('/clients/' + existing.client_id);
   } else if (query.client) {
     st.client = await api('/clients/' + query.client);
@@ -216,6 +216,7 @@ async function quoteForm(v, existing, query) {
   // Preço e custo conforme o porte do veículo (P = pequeno, G = grande)
   const priceOf = (s) => (st.size === 'G' && s.price_large != null ? s.price_large : s.price);
   const costOf = (s) => (st.size === 'G' && s.cost_large != null ? s.cost_large : s.cost) || 0;
+  const opOf = (s) => (st.size === 'G' && s.op_cost_large != null ? s.op_cost_large : s.op_cost) || 0;
   const renderSize = () => {
     $$('#qqSize [data-size]').forEach((b) => b.classList.toggle('active', b.dataset.size === st.size));
     services.forEach((s) => { const el = $(`[data-pr="${s.id}"]`); if (el) el.textContent = priceOf(s) ? brl(priceOf(s)) : 'preço a combinar'; });
@@ -224,14 +225,14 @@ async function quoteForm(v, existing, query) {
     b.onclick = () => {
       st.size = b.dataset.size;
       // reprecifica os itens da tabela que têm preço diferente por porte
-      st.items.forEach((it) => { const s = services.find((x) => x.id === it.service_id); if (s && s.price_large != null) { it.price = priceOf(s); it.cost = costOf(s); } });
+      st.items.forEach((it) => { const s = services.find((x) => x.id === it.service_id); if (s && s.price_large != null) { it.price = priceOf(s); it.cost = costOf(s); it.op_cost = opOf(s); } });
       renderSize(); renderItems();
     };
   });
   $$('[data-add]').forEach((b) => {
     b.onclick = () => {
       const s = services.find((x) => x.id == b.dataset.add);
-      st.items.push({ service_id: s.id, name: s.name, price: priceOf(s), cost: costOf(s) });
+      st.items.push({ service_id: s.id, name: s.name, price: priceOf(s), cost: costOf(s), op_cost: opOf(s) });
       renderItems();
     };
   });

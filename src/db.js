@@ -131,6 +131,10 @@ if (!hasCol('services', 'price_large')) db.exec('ALTER TABLE services ADD COLUMN
 if (!hasCol('services', 'cost')) db.exec('ALTER TABLE services ADD COLUMN cost REAL NOT NULL DEFAULT 0');
 if (!hasCol('services', 'cost_large')) db.exec('ALTER TABLE services ADD COLUMN cost_large REAL');
 if (!hasCol('quote_items', 'cost')) db.exec('ALTER TABLE quote_items ADD COLUMN cost REAL NOT NULL DEFAULT 0');
+// Custo operacional por serviço (panos, desgaste de máquinas, boina): pago pelo caixa da empresa, não pelo cliente
+if (!hasCol('services', 'op_cost')) db.exec('ALTER TABLE services ADD COLUMN op_cost REAL NOT NULL DEFAULT 0');
+if (!hasCol('services', 'op_cost_large')) db.exec('ALTER TABLE services ADD COLUMN op_cost_large REAL');
+if (!hasCol('quote_items', 'op_cost')) db.exec('ALTER TABLE quote_items ADD COLUMN op_cost REAL NOT NULL DEFAULT 0');
 if (!hasCol('quotes', 'vehicle_size')) db.exec("ALTER TABLE quotes ADD COLUMN vehicle_size TEXT DEFAULT 'P'");
 
 // Tabela oficial GSM (out/2026). Custos de estética = estimativa de produtos do kit Vonixx (preço médio de mercado);
@@ -206,6 +210,42 @@ seed();
     CATALOG_V2.forEach((s, i) => ins.run(...s, i));
     db.prepare("INSERT OR IGNORE INTO origins(name, sort) VALUES ('Fachada (passou na frente)', 9)").run();
     db.prepare("INSERT INTO settings(key, value) VALUES ('catalog_version', '2') ON CONFLICT(key) DO UPDATE SET value = '2'").run();
+  })();
+})();
+
+// Correções do Gustavo (27/10): higienização R$220 (P e G), farol R$200 (material ~R$50),
+// painel e colchão = caminhão, Hydrox na antirrepelência, clay bar + sabão na descontaminação, custo operacional por serviço
+const CATALOG_V3 = {
+  // nome: [preço P, preço G, material P, material G, operacional P, operacional G, categoria?]
+  'Ducha': [20, 20, 1, 1, 1, 1],
+  'Lavagem simples': [45, 90, 7, 10, 1.5, 2],
+  'Lavagem de manutenção': [60, 120, 9, 13, 2, 2.5],
+  'Lavagem com antirrepelência': [70, 140, 12, 17, 2, 2.5],
+  'Lavagem detalhada': [120, 220, 18, 26, 2.5, 3],
+  'Descontaminação de pintura': [140, 190, 15, 21, 2.5, 3],
+  'Enceramento técnico': [170, 290, 22, 32, 3, 3.5],
+  'Lavagem do motor': [100, 100, 9, 9, 1.5, 1.5],
+  'Mini higienização': [180, 450, 8, 15, 2, 3],
+  'Higienização': [220, 220, 25, 30, 4, 4],
+  'Polimento comercial': [500, 700, 0, 0, 4, 5],
+  'Polimento técnico': [900, 1200, 0, 0, 8, 10],
+  'Restauração de farol': [200, 200, 50, 50, 1, 1],
+  'Capa de carro': [400, null, 200, null, 2, null],
+  'Banco acoplado pra carro': [550, null, 300, null, 2, null],
+  'Volante e suportes': [270, null, 100, null, 1, null],
+  'Painel e colchão': [600, null, 300, null, 2, null, 'Caminhão'],
+  'Carpete e teto': [900, null, 400, null, 2, null],
+  'Capa de caminhão': [700, null, 300, null, 2, null],
+  'Banco de moto': [350, null, 100, null, 1, null],
+  'Sofá retrátil': [0, null, 250, null, 2, null],
+};
+(function applyCatalogV3() {
+  if (db.prepare("SELECT 1 FROM settings WHERE key = 'catalog_version' AND value >= '3'").get()) return;
+  db.transaction(() => {
+    const up = db.prepare('UPDATE services SET price = ?, price_large = ?, cost = ?, cost_large = ?, op_cost = ?, op_cost_large = ?, category = COALESCE(?, category) WHERE name = ? AND active = 1');
+    Object.entries(CATALOG_V3).forEach(([name, v]) => up.run(v[0], v[1], v[2], v[3], v[4], v[5], v[6] || null, name));
+    db.prepare("UPDATE services SET description = 'Reforma do painel e colchão da cabine do caminhão' WHERE name = 'Painel e colchão' AND active = 1").run();
+    db.prepare("INSERT INTO settings(key, value) VALUES ('catalog_version', '3') ON CONFLICT(key) DO UPDATE SET value = '3'").run();
   })();
 })();
 

@@ -89,13 +89,14 @@ route(/^#\/financeiro$/, async (v, _, query) => {
       ${(() => {
         const st = S.meta.settings; const base = Math.max(0, T.margem);
         const p1 = Number(st.split_socio1) || 0; const p2 = Number(st.split_socio2) || 0; const pc = Number(st.split_caixa) || 0;
-        const meta = Number(st.prolabore_meta) || 0; const caixaLiq = base * pc / 100 - T.despesas;
+        const meta = Number(st.prolabore_meta) || 0; const caixaLiq = base * pc / 100 - (T.custo_operacional || 0) - T.despesas;
         const share = (nome, p) => line(`${esc(nome)} (${p}%)`, `${brl(base * p / 100)}${meta ? ` <span class="tiny ${base * p / 100 >= meta ? 'green' : 'red'}">meta ${brl0(meta)}</span>` : ''}`);
         return `<div class="card"><h2>Divisão da margem ${p1}/${p2}/${pc}</h2>
           <p class="tiny muted" style="margin-top:0">Base = margem de contribuição (faturamento − material). Material sai antes da divisão.</p>
           ${share(st.split_socio1_nome, p1)}${share(st.split_socio2_nome, p2)}
           ${line(`Caixa da empresa (${pc}%)`, brl(base * pc / 100))}
-          ${line('(−) Despesas operacionais', brl(T.despesas), 'red')}
+          ${line('(−) Custo operacional dos serviços (panos, desgaste)', brl(T.custo_operacional || 0), 'red')}
+          ${line('(−) Despesas fixas lançadas (luz, internet…)', brl(T.despesas), 'red')}
           ${line('= Caixa líquido', brl(caixaLiq), caixaLiq < 0 ? 'red' : 'green', true)}</div>`;
       })()}
       <div class="card"><h2>Custos diretos por categoria</h2>
