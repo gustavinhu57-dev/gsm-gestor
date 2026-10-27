@@ -113,6 +113,7 @@ async function quoteForm(v, existing, query) {
         <div class="tr"><span>Subtotal</span><b id="qqSub"></b></div>
         <div class="tr"><span>Desconto (R$)</span><input class="i" id="qqDisc" inputmode="decimal" value="${st.discount || ''}" placeholder="0,00"></div>
         <div class="tr"><span>Acréscimo (R$)</span><input class="i" id="qqSur" inputmode="decimal" value="${st.surcharge || ''}" placeholder="0,00"></div>
+        ${num(m.settings.taxa_credito) || num(m.settings.taxa_debito) ? `<div class="chips" style="margin:4px 0">${num(m.settings.taxa_debito) ? `<button type="button" class="chip" data-card="${num(m.settings.taxa_debito)}">+ débito ${esc(m.settings.taxa_debito)}%</button>` : ''}${num(m.settings.taxa_credito) ? `<button type="button" class="chip" data-card="${num(m.settings.taxa_credito)}">+ crédito ${esc(m.settings.taxa_credito)}%</button>` : ''}<button type="button" class="chip" data-card="0">Pix / dinheiro</button></div>` : ''}
         <div class="grand"><span>TOTAL</span><span id="qqTot"></span></div>
         <div class="small red bold hidden" id="qqFloor" style="margin-top:8px"></div>
       </div>
@@ -242,6 +243,16 @@ async function quoteForm(v, existing, query) {
   $('#qqFree').onclick = () => { st.items.push({ service_id: null, name: '', price: 0 }); renderItems(); $$('[data-name]').pop().focus(); };
   $('#qqDisc').oninput = (e) => { st.discount = num(e.target.value); totals(); };
   $('#qqSur').oninput = (e) => { st.surcharge = num(e.target.value); totals(); };
+  // Cartão: acréscimo que cobre a taxa da maquininha (o valor líquido recebido fica igual ao do Pix)
+  $$('[data-card]').forEach((b) => {
+    b.onclick = () => {
+      const r = Number(b.dataset.card) / 100;
+      const liq = Math.max(0, st.items.reduce((s, i) => s + num(i.price), 0) - num(st.discount));
+      st.surcharge = r ? Math.ceil((liq / (1 - r) - liq) * 100) / 100 : 0;
+      $('#qqSur').value = st.surcharge ? String(st.surcharge).replace('.', ',') : '';
+      $$('[data-card]').forEach((x) => x.classList.toggle('active', x === b)); totals();
+    };
+  });
   bindPhotoPicker(v, 'qp', (blobs, meta) => { blobs.forEach((b) => st.photos.push({ blob: b, url: URL.createObjectURL(b), category: meta.category, marketing: meta.marketing, show_client: meta.show_client })); renderPhotos(); });
 
   const save = async (share) => {

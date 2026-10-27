@@ -400,8 +400,15 @@ r.post('/quotes/:id/payments', wrap((req, res) => {
   if (!q) return bad(res, 'Orçamento não encontrado', 404);
   const amount = num(req.body.amount);
   if (amount <= 0) return bad(res, 'Informe o valor recebido');
-  db.prepare('INSERT INTO payments(quote_id, amount, method, paid_at, notes, created_at) VALUES (?,?,?,?,?,?)')
-    .run(req.params.id, amount, str(req.body.method), str(req.body.paid_at) || today(), str(req.body.notes), now());
+  const pid = db.prepare('INSERT INTO payments(quote_id, amount, method, paid_at, notes, created_at) VALUES (?,?,?,?,?,?)')
+    .run(req.params.id, amount, str(req.body.method), str(req.body.paid_at) || today(), str(req.body.notes), now()).lastInsertRowid;
+  // Cartão: a taxa da maquininha vira custo do serviço (sai antes da divisão, como o material)
+  const st = getSettings(); const m = String(req.body.method || '');
+  const rate = num(/crédito/i.test(m) ? st.taxa_credito : /débito/i.test(m) ? st.taxa_debito : 0);
+  if (rate > 0) {
+    db.prepare('INSERT INTO costs(quote_id, category, description, amount, created_at) VALUES (?,?,?,?,?)')
+      .run(req.params.id, 'Taxa de cartão', `${m} ${rate}% (pagamento #${pid})`, Math.round(amount * rate) / 100, now());
+  }
   logEvent(q.client_id, req.params.id, 'pagamento', `Pagamento R$ ${amount.toFixed(2)} (${req.body.method || '—'}) — orçamento #${req.params.id}`, req.user);
   checkPaid(req.params.id);
   return getQuote(req.params.id);
@@ -409,6 +416,7 @@ r.post('/quotes/:id/payments', wrap((req, res) => {
 r.delete('/payments/:id', wrap((req) => {
   const p = db.prepare('SELECT quote_id FROM payments WHERE id = ?').get(req.params.id);
   db.prepare('DELETE FROM payments WHERE id = ?').run(req.params.id);
+  db.prepare("DELETE FROM costs WHERE category = 'Taxa de cartão' AND description LIKE ?").run(`%(pagamento #${Number(req.params.id)})`);
   return p ? getQuote(p.quote_id) : { ok: true };
 }));
 
@@ -561,6 +569,21 @@ function financeData(from, to) {
   const executed = db.prepare(`${QUOTE_SELECT} WHERE q.status = 'executado' AND substr(q.executed_at,1,10) BETWEEN ? AND ? ORDER BY q.executed_at DESC`).all(from, to);
   const faturamento = executed.reduce((s, q) => s + q.total, 0);
   const custos = executed.reduce((s, q) => s + q.costs_total, 0);
+  // Base da divisão por equipe: tapeçaria (Gustavo + Barbosa) e estética (Gustavo + Carlinhos), proporcional ao valor dos itens
+  const TAPECARIA = ['Tapeçaria', 'Caminhão', 'Moto', 'Sofá / residencial'];
+  const itemsQ = db.prepare('SELECT i.price, i.cost, s.category FROM quote_items i LEFT JOIN services s ON s.id = i.service_id WHERE i.quote_id = ?');
+  const split = { tapecaria: 0, estetica: 0 };
+  for (const q of executed) {
+    const its = itemsQ.all(q.id);
+    if (!its.length) { split.estetica += q.total - q.costs_total; continue; }
+    const sum = its.reduce((s, i) => s + i.price, 0);
+    const itemMat = its.reduce((s, i) => s + (i.cost || 0), 0);
+    const extra = q.costs_total - itemMat; // taxa de cartão, material extra lançado à mão
+    its.forEach((i) => {
+      const share = sum ? i.price / sum : 1 / its.length;
+      split[TAPECARIA.includes(i.category) ? 'tapecaria' : 'estetica'] += q.total * share - (i.cost || 0) - extra * share;
+    });
+  }
   // Custo operacional estimado (panos, desgaste, boina) dos serviços executados: sai do caixa da empresa
   const custoOp = db.prepare(`SELECT COALESCE(SUM(i.op_cost),0) s FROM quote_items i JOIN quotes q ON q.id = i.quote_id
     WHERE q.status = 'executado' AND substr(q.executed_at,1,10) BETWEEN ? AND ?`).get(from, to).s;
@@ -577,7 +600,7 @@ function financeData(from, to) {
     from, to, executed, expenses, costsByCat,
     expensesByCat: Object.entries(expByCat).map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total),
     totals: {
-      faturamento, recebido, a_receber: Math.max(0, aReceber), custos, custo_operacional: custoOp, margem: faturamento - custos,
+      faturamento, recebido, a_receber: Math.max(0, aReceber), custos, custo_operacional: custoOp, margem: faturamento - custos, split,
       margem_pct: faturamento ? (faturamento - custos) / faturamento : 0, despesas, resultado: faturamento - custos - despesas,
     },
   };

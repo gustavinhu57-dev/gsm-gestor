@@ -88,12 +88,15 @@ route(/^#\/financeiro$/, async (v, _, query) => {
       </div>
       ${(() => {
         const st = S.meta.settings; const base = Math.max(0, T.margem);
+        const tb = Math.max(0, T.split?.tapecaria || 0); const eb = Math.max(0, T.split?.estetica || 0);
         const p1 = Number(st.split_socio1) || 0; const p2 = Number(st.split_socio2) || 0; const pc = Number(st.split_caixa) || 0;
         const meta = Number(st.prolabore_meta) || 0; const caixaLiq = base * pc / 100 - (T.custo_operacional || 0) - T.despesas;
-        const share = (nome, p) => line(`${esc(nome)} (${p}%)`, `${brl(base * p / 100)}${meta ? ` <span class="tiny ${base * p / 100 >= meta ? 'green' : 'red'}">meta ${brl0(meta)}</span>` : ''}`);
+        const share = (nome, v, withMeta) => line(esc(nome), `${brl(v)}${withMeta && meta ? ` <span class="tiny ${v >= meta ? 'green' : 'red'}">meta ${brl0(meta)}</span>` : ''}`);
         return `<div class="card"><h2>Divisão da margem ${p1}/${p2}/${pc}</h2>
-          <p class="tiny muted" style="margin-top:0">Base = margem de contribuição (faturamento − material). Material sai antes da divisão.</p>
-          ${share(st.split_socio1_nome, p1)}${share(st.split_socio2_nome, p2)}
+          <p class="tiny muted" style="margin-top:0">Base = faturamento − material (e taxa de cartão). Tapeçaria: ${brl0(tb)} · Estética: ${brl0(eb)}.</p>
+          ${share(`${st.split_socio1_nome} (${p1}% de tudo)`, base * p1 / 100, true)}
+          ${share(`${st.split_socio2_nome} (${p2}% da tapeçaria)`, tb * p2 / 100, true)}
+          ${share(`${st.split_estetica_nome || 'Parceiro da estética'} (${p2}% da estética)`, eb * p2 / 100, false)}
           ${line(`Caixa da empresa (${pc}%)`, brl(base * pc / 100))}
           ${line('(−) Custo operacional dos serviços (panos, desgaste)', brl(T.custo_operacional || 0), 'red')}
           ${line('(−) Despesas fixas lançadas (luz, internet…)', brl(T.despesas), 'red')}
@@ -187,6 +190,8 @@ route(/^#\/config$/, async (v) => {
       <div class="row"><label class="f"><span>Sócio 1</span><input class="i" name="split_socio1_nome" value="${esc(s.split_socio1_nome)}"></label><label class="f"><span>% sócio 1</span><input class="i" name="split_socio1" inputmode="numeric" value="${esc(s.split_socio1)}"></label></div>
       <div class="row"><label class="f"><span>Sócio 2</span><input class="i" name="split_socio2_nome" value="${esc(s.split_socio2_nome)}"></label><label class="f"><span>% sócio 2</span><input class="i" name="split_socio2" inputmode="numeric" value="${esc(s.split_socio2)}"></label></div>
       <div class="row"><label class="f"><span>Custos fixos do mês (luz, internet, comunicação visual…)</span><input class="i" name="custos_fixos_mes" inputmode="numeric" value="${esc(s.custos_fixos_mes)}"></label><label class="f"><span>Meta de faturamento do mês</span><input class="i" name="meta_faturamento_mes" inputmode="numeric" value="${esc(s.meta_faturamento_mes)}"></label></div>
+      <label class="f"><span>Na estética (sem o ${esc(s.split_socio2_nome)}), os ${esc(s.split_socio2)}% vão para</span><input class="i" name="split_estetica_nome" value="${esc(s.split_estetica_nome)}"></label>
+      <div class="row"><label class="f"><span>Taxa maquininha débito (%)</span><input class="i" name="taxa_debito" inputmode="decimal" value="${esc(s.taxa_debito)}" placeholder="ex.: 1,99"></label><label class="f"><span>Taxa maquininha crédito (%)</span><input class="i" name="taxa_credito" inputmode="decimal" value="${esc(s.taxa_credito)}" placeholder="ex.: 4,99"></label></div>
       <div class="row"><label class="f"><span>% caixa da empresa</span><input class="i" name="split_caixa" inputmode="numeric" value="${esc(s.split_caixa)}"></label><label class="f"><span>Meta de pró-labore (R$/mês)</span><input class="i" name="prolabore_meta" inputmode="numeric" value="${esc(s.prolabore_meta)}"></label></div>
       <label class="f"><span>Mensagem do WhatsApp — variáveis: {nome} {veiculo} {itens} {total} {link} {validade}</span><textarea class="i" name="quote_message" rows="7">${esc(s.quote_message)}</textarea></label>
       <button class="btn gold" ${admin ? '' : 'disabled'}>Salvar</button></form></div>

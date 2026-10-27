@@ -196,6 +196,10 @@ function seed() {
     split_caixa: '20', prolabore_meta: '2000',
     // Precificação: custos fixos do mês (pagos pelo caixa) e faturamento-meta do mês para ratear esses custos
     custos_fixos_mes: '350', meta_faturamento_mes: '15000',
+    // Estética (lavagens, higienização, polimento, farol) é feita por Gustavo + Carlinhos: a parte do Carlinhos fica na GSM
+    split_estetica_nome: 'Carlinhos (fica na GSM: material e máquinas)',
+    // Taxas da maquininha (%), lançadas como custo quando o pagamento é no cartão. Vazio = não lança.
+    taxa_debito: '', taxa_credito: '',
     quote_message: 'Olá {nome}! Tudo bem? Segue o orçamento da *GSM — Estética & Tapeçaria Automotiva*{veiculo}:\n\n{itens}\n\n*TOTAL: {total}*\n\nVer orçamento completo: {link}\n\nValidade: {validade} dias. Qualquer dúvida estou à disposição!',
   };
   const insS = db.prepare('INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)');
@@ -261,6 +265,15 @@ const CATALOG_V3 = {
     db.prepare("UPDATE services SET price = 280, price_large = 280 WHERE name = 'Mini higienização' AND active = 1").run();
     db.prepare("UPDATE services SET op_cost = 20, op_cost_large = 24.5, description = 'Lavagem com shampoo cerâmico que repele água' WHERE name = 'Lavagem com antirrepelência' AND active = 1").run();
     db.prepare("INSERT INTO settings(key, value) VALUES ('catalog_version', '4') ON CONFLICT(key) DO UPDATE SET value = '4'").run();
+  })();
+})();
+
+// 28/10: o material do farol (~R$50 por serviço) é pago pelo cliente → vai para material, sai antes da divisão
+(function applyCatalogV5() {
+  if (db.prepare("SELECT 1 FROM settings WHERE key = 'catalog_version' AND value >= '5'").get()) return;
+  db.transaction(() => {
+    db.prepare("UPDATE services SET cost = 50, cost_large = 50, op_cost = 1, op_cost_large = 1 WHERE name = 'Restauração de farol' AND active = 1").run();
+    db.prepare("INSERT INTO settings(key, value) VALUES ('catalog_version', '5') ON CONFLICT(key) DO UPDATE SET value = '5'").run();
   })();
 })();
 
