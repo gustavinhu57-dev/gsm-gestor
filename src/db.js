@@ -122,6 +122,11 @@ CREATE TABLE IF NOT EXISTS expenses (
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 `);
 
+// ---------- Migrações simples (colunas novas em bancos já existentes) ----------
+const hasCol = (t, c) => db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c);
+if (!hasCol('photos', 'show_client')) db.exec('ALTER TABLE photos ADD COLUMN show_client INTEGER NOT NULL DEFAULT 0');
+if (!hasCol('quotes', 'link_active')) db.exec('ALTER TABLE quotes ADD COLUMN link_active INTEGER NOT NULL DEFAULT 1');
+
 // ---------- Seeds (rodam só uma vez) ----------
 function seed() {
   const hasOrigins = db.prepare('SELECT COUNT(*) c FROM origins').get().c;

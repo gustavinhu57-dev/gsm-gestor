@@ -300,6 +300,19 @@ r.put('/quotes/:id', wrap((req, res) => {
 }));
 r.delete('/quotes/:id', auth.requireRole(), wrap((req) => { db.prepare('DELETE FROM quotes WHERE id = ?').run(req.params.id); return { ok: true }; }));
 
+// Link do orçamento: gerar novo (o anterior para de funcionar) ou desativar/ativar
+r.post('/quotes/:id/link', wrap((req, res) => {
+  const q = db.prepare('SELECT id, client_id FROM quotes WHERE id = ?').get(req.params.id);
+  if (!q) return bad(res, 'Orçamento não encontrado', 404);
+  const a = req.body.action;
+  if (a === 'renew') db.prepare('UPDATE quotes SET public_token = ?, link_active = 1 WHERE id = ?').run(crypto.randomBytes(18).toString('base64url'), q.id);
+  else if (a === 'disable') db.prepare('UPDATE quotes SET link_active = 0 WHERE id = ?').run(q.id);
+  else if (a === 'enable') db.prepare('UPDATE quotes SET link_active = 1 WHERE id = ?').run(q.id);
+  else return bad(res, 'Ação inválida');
+  logEvent(q.client_id, q.id, 'orcamento', { renew: 'Novo link do orçamento gerado (anterior desativado)', disable: 'Link do orçamento desativado', enable: 'Link do orçamento reativado' }[a], req.user);
+  return getQuote(q.id);
+}));
+
 // Marcado quando o orçamento é enviado ao cliente (WhatsApp/link)
 r.post('/quotes/:id/sent', wrap((req, res) => {
   const q = db.prepare('SELECT * FROM quotes WHERE id = ?').get(req.params.id);
@@ -410,8 +423,9 @@ r.post('/photos', upload.array('files', 20), wrap((req, res) => {
     if (q) { clientId = clientId || q.client_id; vehicleId = vehicleId || q.vehicle_id; }
   }
   const marketing = ['sim', 'nao', 'nao_informado'].includes(b.marketing) ? b.marketing : 'nao_informado';
-  const ins = db.prepare('INSERT INTO photos(client_id, vehicle_id, quote_id, category, phase, filename, marketing, created_at) VALUES (?,?,?,?,?,?,?,?)');
-  const ids = req.files.map((f) => ins.run(clientId, vehicleId, b.quote_id || null, str(b.category) || 'Outras', str(b.phase) || 'entrada', f.filename, marketing, now()).lastInsertRowid);
+  const showClient = b.show_client === '1' || b.show_client === 'true' ? 1 : 0;
+  const ins = db.prepare('INSERT INTO photos(client_id, vehicle_id, quote_id, category, phase, filename, marketing, show_client, created_at) VALUES (?,?,?,?,?,?,?,?,?)');
+  const ids = req.files.map((f) => ins.run(clientId, vehicleId, b.quote_id || null, str(b.category) || 'Outras', str(b.phase) || 'entrada', f.filename, marketing, showClient, now()).lastInsertRowid);
   return { ids };
 }));
 r.get('/photos', wrap((req) => {
@@ -435,8 +449,9 @@ r.get('/photos/:id/file', (req, res) => {
 });
 r.put('/photos/:id', wrap((req) => {
   const b = req.body;
-  db.prepare('UPDATE photos SET category = COALESCE(?, category), phase = COALESCE(?, phase), marketing = COALESCE(?, marketing) WHERE id = ?')
-    .run(str(b.category), str(b.phase), ['sim', 'nao', 'nao_informado'].includes(b.marketing) ? b.marketing : null, req.params.id);
+  db.prepare('UPDATE photos SET category = COALESCE(?, category), phase = COALESCE(?, phase), marketing = COALESCE(?, marketing), show_client = COALESCE(?, show_client) WHERE id = ?')
+    .run(str(b.category), str(b.phase), ['sim', 'nao', 'nao_informado'].includes(b.marketing) ? b.marketing : null,
+      b.show_client === undefined ? null : (b.show_client ? 1 : 0), req.params.id);
   return { ok: true };
 }));
 r.delete('/photos/:id', wrap((req) => {

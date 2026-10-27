@@ -2,7 +2,7 @@ process.env.TZ = process.env.TZ || 'America/Sao_Paulo';
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
-const { db, now, today, getSettings } = require('./db');
+const { db, DATA_DIR, now, today, getSettings } = require('./db');
 const { ensureAdmin } = require('./auth');
 const { normPhone, str, logEvent, advanceStage, recalcQuote } = require('./helpers');
 
@@ -26,8 +26,9 @@ const br = (d) => (d ? d.slice(0, 10).split('-').reverse().join('/') : '');
 app.get('/o/:token', (req, res) => {
   const q = db.prepare(`SELECT q.id, q.subtotal, q.discount, q.surcharge, q.total, q.notes, q.validity_days, q.created_at, q.sent_at,
       c.name client_name, v.brand, v.model, v.year, v.color, v.plate
-    FROM quotes q JOIN clients c ON c.id = q.client_id LEFT JOIN vehicles v ON v.id = q.vehicle_id WHERE q.public_token = ?`).get(req.params.token);
-  if (!q) return res.status(404).send('<h1 style="font-family:sans-serif">Orçamento não encontrado</h1>');
+    FROM quotes q JOIN clients c ON c.id = q.client_id LEFT JOIN vehicles v ON v.id = q.vehicle_id WHERE q.public_token = ? AND q.link_active = 1`).get(req.params.token);
+  if (!q) return res.status(404).send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><div style="font-family:sans-serif;padding:40px 20px;text-align:center"><h2>Orçamento indisponível</h2><p>Este link não está mais ativo. Fale com a GSM para receber o orçamento atualizado.</p></div>');
+  const photos = db.prepare('SELECT id, category FROM photos WHERE quote_id = ? AND show_client = 1 ORDER BY id').all(q.id);
   const items = db.prepare('SELECT i.name, i.price, s.description FROM quote_items i LEFT JOIN services s ON s.id = i.service_id WHERE i.quote_id = ? ORDER BY i.sort, i.id').all(q.id);
   const s = getSettings();
   const firstName = String(q.client_name).split(' ')[0];
@@ -51,7 +52,8 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--mute);
 .item{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}.item small{display:block;color:var(--mute)}
 .sum{display:flex;justify-content:space-between;padding:6px 0;color:var(--mute)}
 .total{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:16px;background:#111;color:#fff;border-radius:12px;font-size:22px;font-weight:800}
-.total span:last-child{color:var(--gold)}.notes{white-space:pre-wrap;background:var(--bg);padding:12px;border-radius:10px}
+.total span:last-child{color:var(--gold)}.pics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.pics figure{margin:0}.pics img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;display:block;background:#eee}.pics figcaption{font-size:12px;color:var(--mute);margin-top:2px}
+.notes{white-space:pre-wrap;background:var(--bg);padding:12px;border-radius:10px}
 .foot{padding:20px 24px;border-top:1px solid var(--line);color:var(--mute);font-size:14px}
 .btn{display:block;text-align:center;background:#25d366;color:#fff;text-decoration:none;font-weight:700;padding:14px;border-radius:12px;margin-top:16px}
 .print{background:none;border:1px solid var(--line);color:var(--ink);width:100%;font:inherit;padding:12px;border-radius:12px;margin-top:10px;cursor:pointer}
@@ -67,6 +69,7 @@ ${q.discount || q.surcharge ? `<div class="sum" style="margin-top:8px"><span>Sub
 ${q.discount ? `<div class="sum"><span>Desconto</span><span>− ${brl(q.discount)}</span></div>` : ''}
 ${q.surcharge ? `<div class="sum"><span>Acréscimo</span><span>+ ${brl(q.surcharge)}</span></div>` : ''}
 <div class="total"><span>TOTAL</span><span>${brl(q.total)}</span></div>
+${photos.length ? `<h2>Fotos do seu veículo</h2><div class="pics">${photos.map((p) => `<figure><a href="/o/${esc(req.params.token)}/foto/${p.id}" target="_blank"><img loading="lazy" src="/o/${esc(req.params.token)}/foto/${p.id}" alt="${esc(p.category)}"></a><figcaption>${esc(p.category || '')}</figcaption></figure>`).join('')}</div>` : ''}
 ${q.notes ? `<h2>Observações</h2><div class="notes">${esc(q.notes)}</div>` : ''}
 <h2>Validade</h2><div>Orçamento válido até <strong>${br(valid.toISOString())}</strong> (${q.validity_days} dias).</div>
 ${wa ? `<a class="btn" href="https://wa.me/${wa}?text=${encodeURIComponent(`Olá! Sobre o orçamento #${q.id} da GSM...`)}">Falar com a GSM no WhatsApp</a>` : ''}
@@ -75,6 +78,16 @@ ${wa ? `<a class="btn" href="https://wa.me/${wa}?text=${encodeURIComponent(`Olá
 <div class="foot"><strong>${esc(s.company_name)} — ${esc(s.company_tagline)}</strong><br>
 ${s.company_whatsapp ? `WhatsApp: ${esc(s.company_whatsapp)}<br>` : ''}${s.company_instagram ? `Instagram: ${esc(s.company_instagram)}<br>` : ''}${s.company_address ? esc(s.company_address) : ''}</div>
 </div></div></body></html>`);
+});
+
+// Foto do orçamento: só se pertence a ESTE orçamento, o link está ativo e a foto foi marcada "mostrar ao cliente"
+app.get('/o/:token/foto/:id', (req, res) => {
+  const ph = db.prepare(`SELECT p.filename FROM photos p JOIN quotes q ON q.id = p.quote_id
+    WHERE q.public_token = ? AND q.link_active = 1 AND p.id = ? AND p.show_client = 1`).get(req.params.token, req.params.id);
+  if (!ph) return res.status(404).end();
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.setHeader('X-Robots-Tag', 'noindex');
+  res.sendFile(path.join(DATA_DIR, 'uploads', path.basename(ph.filename)));
 });
 
 // ---------- Entrada pública de leads (site / landing pages / formulários futuros) ----------

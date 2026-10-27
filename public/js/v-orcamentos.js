@@ -36,7 +36,7 @@ async function uploadPhotos(meta, blobs) {
 }
 const MK = { sim: 'Sim', nao: 'Não', nao_informado: 'Não informado' };
 const PHASE = { entrada: 'Entrada', antes: 'Antes', depois: 'Depois' };
-const photoThumb = (p) => `<div class="ph" data-ph="${p.id}"><img loading="lazy" src="/api/photos/${p.id}/file" alt="">${p.marketing === 'sim' ? '<span class="mk">MKT</span>' : ''}<span class="cap">${esc(PHASE[p.phase] || '')} · ${esc(p.category || '')}</span></div>`;
+const photoThumb = (p) => `<div class="ph" data-ph="${p.id}"><img loading="lazy" src="/api/photos/${p.id}/file" alt="">${p.marketing === 'sim' ? '<span class="mk">MKT</span>' : ''}${p.show_client ? '<span class="cl">CLIENTE</span>' : ''}<span class="cap">${esc(PHASE[p.phase] || '')} · ${esc(p.category || '')}</span></div>`;
 function bindPhotoThumbs(root, photos) {
   $$('[data-ph]', root).forEach((el) => { el.onclick = () => photoViewer(photos.find((p) => p.id == el.dataset.ph)); });
 }
@@ -46,19 +46,21 @@ function photoViewer(p) {
     <div class="tiny muted" style="margin:6px 0 10px">${fdt(p.created_at)}${p.client_name ? ' · ' + esc(p.client_name) : ''}${p.services ? ' · ' + esc(p.services) : ''}</div>
     <div class="row"><label class="f"><span>Fase</span><select class="i" data-k="phase">${opts(m.photoPhases, p.phase)}</select></label>
     <label class="f"><span>Categoria</span><select class="i" data-k="category">${opts(m.photoCategories, p.category)}</select></label></div>
-    <label class="f"><span>Autorizado para marketing</span><select class="i" data-k="marketing">${opts(Object.entries(MK), p.marketing)}</select></label>
+    <div class="row"><label class="f"><span>Aparece no orçamento do cliente</span><select class="i" data-k="show_client">${opts([['1', 'Sim'], ['0', 'Não']], p.show_client ? '1' : '0')}</select></label>
+    <label class="f"><span>Autorizado para marketing</span><select class="i" data-k="marketing">${opts(Object.entries(MK), p.marketing)}</select></label></div>
     <div class="actions">${p.quote_id ? `<a class="btn" href="#/orcamento/${p.quote_id}">Abrir orçamento</a>` : ''}<a class="btn" href="/api/photos/${p.id}/file" target="_blank" download>Baixar</a><button class="btn danger" id="phd">Excluir</button></div>`, (md) => {
-    $$('select[data-k]', md.el).forEach((s) => { s.onchange = async () => { await run(() => put('/photos/' + p.id, { [s.dataset.k]: s.value })); p[s.dataset.k] = s.value; toast('Foto atualizada'); }; });
+    $$('select[data-k]', md.el).forEach((s) => { s.onchange = async () => { const val = s.dataset.k === 'show_client' ? s.value === '1' : s.value; await run(() => put('/photos/' + p.id, { [s.dataset.k]: val })); p[s.dataset.k] = s.value; toast('Foto atualizada'); }; });
     $('a[href^="#"]', md.el)?.addEventListener('click', md.close);
     $('#phd', md.el).onclick = async () => { if (confirm('Excluir esta foto?')) { await run(() => del('/photos/' + p.id)); md.close(); reload(); } };
   });
 }
 // Bloco de seleção de fotos (câmera/galeria) reutilizável
-function photoPickerHtml(id, { phase } = {}) {
+function photoPickerHtml(id, { phase, show = true } = {}) {
   const m = S.meta;
   return `<div class="row">${phase ? `<label class="f"><span>Fase</span><select class="i" id="${id}Phase">${opts(m.photoPhases, phase)}</select></label>` : ''}
     <label class="f"><span>Categoria</span><select class="i" id="${id}Cat">${opts(m.photoCategories, 'Frente')}</select></label></div>
-    <label class="f"><span>Autorizado p/ marketing</span><select class="i" id="${id}Mk">${opts(Object.entries(MK), 'nao_informado')}</select></label>
+    <label class="check"><input type="checkbox" id="${id}Show" ${show ? 'checked' : ''}><span><b>Mostrar ao cliente no orçamento</b><br><small class="muted">Ex.: foto da avaria para ele entender o serviço</small></span></label>
+    <label class="f"><span>Autorizado p/ marketing (divulgação)</span><select class="i" id="${id}Mk">${opts(Object.entries(MK), 'nao_informado')}</select></label>
     <div class="upload-btns">
       <label class="btn">${icon('camera')} Câmera<input type="file" accept="image/*" capture="environment" hidden id="${id}Cam"></label>
       <label class="btn">${icon('image')} Galeria<input type="file" accept="image/*" multiple hidden id="${id}Gal"></label>
@@ -71,7 +73,7 @@ function bindPhotoPicker(root, id, onFiles) {
     toast(files.length > 1 ? `Processando ${files.length} fotos…` : 'Processando foto…');
     const blobs = [];
     for (const f of files) blobs.push(await resizeImage(f));
-    onFiles(blobs, { category: $(`#${id}Cat`, root).value, marketing: $(`#${id}Mk`, root).value, phase: $(`#${id}Phase`, root)?.value });
+    onFiles(blobs, { category: $(`#${id}Cat`, root).value, marketing: $(`#${id}Mk`, root).value, show_client: $(`#${id}Show`, root).checked ? '1' : '0', phase: $(`#${id}Phase`, root)?.value });
   };
   $(`#${id}Cam`, root).onchange = handler; $(`#${id}Gal`, root).onchange = handler;
 }
@@ -206,7 +208,7 @@ async function quoteForm(v, existing, query) {
     totals();
   };
   const renderPhotos = () => {
-    $('#qqPh').innerHTML = st.photos.map((p, i) => `<div class="ph"><img src="${p.url}">${p.marketing === 'sim' ? '<span class="mk">MKT</span>' : ''}<span class="cap">${esc(p.category)}</span><button type="button" class="x" data-prm="${i}">×</button></div>`).join('');
+    $('#qqPh').innerHTML = st.photos.map((p, i) => `<div class="ph"><img src="${p.url}">${p.marketing === 'sim' ? '<span class="mk">MKT</span>' : ''}${p.show_client === '1' ? '<span class="cl">CLIENTE</span>' : ''}<span class="cap">${esc(p.category)}</span><button type="button" class="x" data-prm="${i}">×</button></div>`).join('');
     $$('[data-prm]').forEach((b) => { b.onclick = () => { URL.revokeObjectURL(st.photos[b.dataset.prm].url); st.photos.splice(b.dataset.prm, 1); renderPhotos(); }; });
   };
 
@@ -220,7 +222,7 @@ async function quoteForm(v, existing, query) {
   $('#qqFree').onclick = () => { st.items.push({ service_id: null, name: '', price: 0 }); renderItems(); $$('[data-name]').pop().focus(); };
   $('#qqDisc').oninput = (e) => { st.discount = num(e.target.value); totals(); };
   $('#qqSur').oninput = (e) => { st.surcharge = num(e.target.value); totals(); };
-  bindPhotoPicker(v, 'qp', (blobs, meta) => { blobs.forEach((b) => st.photos.push({ blob: b, url: URL.createObjectURL(b), category: meta.category, marketing: meta.marketing })); renderPhotos(); });
+  bindPhotoPicker(v, 'qp', (blobs, meta) => { blobs.forEach((b) => st.photos.push({ blob: b, url: URL.createObjectURL(b), category: meta.category, marketing: meta.marketing, show_client: meta.show_client })); renderPhotos(); });
 
   const save = async (share) => {
     if (!st.client) { toast('Selecione ou cadastre o cliente', true); window.scrollTo(0, 0); return; }
@@ -235,10 +237,10 @@ async function quoteForm(v, existing, query) {
       const q = existing ? await put('/quotes/' + existing.id, body) : await post('/quotes', body);
       // agrupa fotos por categoria/autorização para enviar
       const groups = {};
-      st.photos.forEach((p) => { const k = p.category + '|' + p.marketing; (groups[k] = groups[k] || []).push(p.blob); });
+      st.photos.forEach((p) => { const k = p.category + '|' + p.marketing + '|' + p.show_client; (groups[k] = groups[k] || []).push(p.blob); });
       for (const [k, blobs] of Object.entries(groups)) {
-        const [category, marketing] = k.split('|');
-        await uploadPhotos({ quote_id: q.id, client_id: q.client_id, vehicle_id: q.vehicle_id || '', category, marketing, phase: 'entrada' }, blobs);
+        const [category, marketing, show_client] = k.split('|');
+        await uploadPhotos({ quote_id: q.id, client_id: q.client_id, vehicle_id: q.vehicle_id || '', category, marketing, show_client, phase: 'entrada' }, blobs);
       }
       st.photos.forEach((p) => URL.revokeObjectURL(p.url)); st.photos = [];
       toast(`Orçamento #${q.id} salvo`);
@@ -256,7 +258,10 @@ route(/^#\/orcamento\/(\d+)\/enviar$/, async (v, [id]) => {
   const s = S.meta.settings;
   const link = publicLink(q);
   const veh = [q.brand, q.model, q.year].filter(Boolean).join(' ');
+  const pics = q.photos.filter((p) => p.show_client);
+  const canShareFiles = !!(navigator.canShare && navigator.canShare({ files: [new File([''], 'x.jpg', { type: 'image/jpeg' })] }));
   v.innerHTML = `<div class="page-head"><a class="btn ghost sm" href="#/orcamento/${q.id}">${icon('back')}</a><h1>Enviar orçamento #${q.id}</h1></div>
+  ${q.link_active ? '' : `<div class="card small red"><b>O link deste orçamento está desativado.</b> O cliente não consegue abri-lo. <button class="btn sm" id="sEnable">Reativar link</button></div>`}
   <div class="card preview" style="padding:0">
     <div class="ph-head"><b>${esc(s.company_name).replace('GSM', 'G<i>S</i>M')}</b><div class="small" style="color:#bbb">${esc(s.company_tagline)}</div></div>
     <div style="padding:14px">
@@ -266,20 +271,38 @@ route(/^#\/orcamento\/(\d+)\/enviar$/, async (v, [id]) => {
       ${q.discount ? `<div class="row small muted" style="padding-top:6px"><span>Desconto</span><span class="auto">− ${brl(q.discount)}</span></div>` : ''}
       ${q.surcharge ? `<div class="row small muted"><span>Acréscimo</span><span class="auto">+ ${brl(q.surcharge)}</span></div>` : ''}
       <div class="grand"><span>TOTAL</span><span>${brl(q.total)}</span></div>
+      ${pics.length ? `<div class="small muted bold" style="margin-top:12px">FOTOS DO VEÍCULO (${pics.length})</div><div class="photos" style="margin-top:6px">${pics.map(photoThumb).join('')}</div>` : ''}
       ${q.notes ? `<p class="small" style="white-space:pre-wrap">${esc(q.notes)}</p>` : ''}
       <p class="small muted">Validade: ${q.validity_days} dias${s.company_whatsapp ? ' · Contato GSM: ' + esc(s.company_whatsapp) : ''}</p>
     </div>
   </div>
   ${q.whatsapp_digits ? '' : '<div class="card small amber"><b>Cliente sem WhatsApp cadastrado.</b> O WhatsApp abrirá para você escolher o contato.</div>'}
   <button class="btn wa block lg" id="sWa" style="font-size:17px">${icon('wa')} ENVIAR PELO WHATSAPP</button>
+  ${pics.length && canShareFiles ? `<button class="btn block lg" id="sPics" style="margin-top:10px">${icon('camera')} Enviar as ${pics.length} foto(s) no WhatsApp</button>` : ''}
   <div class="grid g2" style="margin-top:10px">
     ${navigator.share ? `<button class="btn" id="sShare">${icon('share')} Compartilhar…</button>` : ''}
     <button class="btn" id="sCopyLink">${icon('link')} Copiar link</button>
     <button class="btn" id="sCopyMsg">${icon('copy')} Copiar mensagem</button>
-    <a class="btn" href="${link}" target="_blank">${icon('file')} Página / PDF</a>
+    <a class="btn" href="${link}" target="_blank">${icon('file')} Ver como o cliente vê / PDF</a>
   </div>
   <details class="card" style="margin-top:12px"><summary>Editar mensagem</summary><textarea class="i" id="sMsg" rows="10" style="margin-top:8px">${esc(quoteMessage(q, link))}</textarea></details>
+  <div class="card small" style="margin-top:12px"><b>🔒 Privacidade do link</b><br>
+    <span class="muted">O link é secreto (código aleatório impossível de adivinhar), não aparece no Google e mostra só o primeiro nome do cliente, o veículo, os serviços, o valor e as fotos marcadas "mostrar ao cliente". Telefone, observações internas, custos e as demais fotos nunca aparecem.</span>
+    <div class="actions" style="margin-top:8px"><button class="btn sm" id="sRenew">Gerar novo link</button>${q.link_active ? '<button class="btn sm danger" id="sDisable">Desativar link</button>' : ''}</div></div>
   <div class="actions" style="margin-top:4px"><button class="btn sm ghost" id="sMark">Já enviei por outro meio</button></div>`;
+  bindPhotoThumbs(v, pics);
+  const linkAct = async (action, msg) => { await run(() => post(`/quotes/${q.id}/link`, { action })); toast(msg); reload(); };
+  $('#sRenew').onclick = () => { if (confirm('Gerar um novo link? O link enviado antes deixará de funcionar.')) linkAct('renew', 'Novo link gerado'); };
+  if ($('#sDisable')) $('#sDisable').onclick = () => { if (confirm('Desativar o link? O cliente não conseguirá mais abrir este orçamento.')) linkAct('disable', 'Link desativado'); };
+  if ($('#sEnable')) $('#sEnable').onclick = () => linkAct('enable', 'Link reativado');
+  if ($('#sPics')) {
+    $('#sPics').onclick = async () => {
+      try {
+        const files = await Promise.all(pics.map(async (p, i) => new File([await (await fetch('/api/photos/' + p.id + '/file')).blob()], `GSM-orcamento-${q.id}-${i + 1}.jpg`, { type: 'image/jpeg' })));
+        await navigator.share({ files, text: `Fotos do seu ${veh || 'veículo'} — orçamento GSM #${q.id}` });
+      } catch (e) { if (e.name !== 'AbortError') toast('Não foi possível compartilhar as fotos', true); }
+    };
+  }
   const markSent = async (channel) => { await post(`/quotes/${q.id}/sent`, { channel }); toast('Orçamento em ENVIADOS · follow-up agendado'); refreshBadges(); };
   $('#sWa').onclick = () => { openWa(q.whatsapp_digits, $('#sMsg').value); markSent('WhatsApp').then(() => setTimeout(() => { location.hash = '#/orcamento/' + q.id; }, 600)); };
   const copy = async (t, msg) => { try { await navigator.clipboard.writeText(t); toast(msg); } catch { prompt('Copie:', t); } };
@@ -396,7 +419,7 @@ route(/^#\/orcamento\/(\d+)$/, async (v, [id]) => {
 
   <div class="card"><h2>Fotos (${q.photos.length})</h2>
     <div class="photos" style="margin-bottom:10px">${q.photos.map(photoThumb).join('')}</div>
-    <details ${q.photos.length ? '' : 'open'}><summary>${icon('camera', 'width="16" height="16" style="vertical-align:-3px"')} Adicionar fotos</summary>${photoPickerHtml('dp', { phase: q.status === 'executado' ? 'depois' : sold ? 'antes' : 'entrada' })}</details>
+    <details ${q.photos.length ? '' : 'open'}><summary>${icon('camera', 'width="16" height="16" style="vertical-align:-3px"')} Adicionar fotos</summary>${photoPickerHtml('dp', { phase: q.status === 'executado' ? 'depois' : sold ? 'antes' : 'entrada', show: !sold })}</details>
   </div>
 
   ${q.followups.length ? `<div class="card"><h2>Follow-ups</h2>${q.followups.map((f) => `<div class="small" style="padding:6px 0;border-bottom:1px solid var(--line)"><b class="${f.status === 'pendente' && f.due_date < todayStr() ? 'red' : ''}">${fdate(f.due_date)}</b> · ${esc(f.reason || '')} · <span class="muted">${f.status === 'pendente' ? 'pendente' : 'concluído' + (f.result ? ': ' + esc(f.result) : '')}</span></div>`).join('')}</div>` : ''}
