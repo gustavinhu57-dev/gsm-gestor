@@ -86,15 +86,15 @@ async function quoteForm(v, existing, query) {
   const m = S.meta;
   const st = {
     client: null, vehicle_id: null, items: [], discount: 0, surcharge: 0, notes: '', internal_notes: '',
-    validity_days: Number(m.settings.quote_validity_days) || 7, photos: [], size: 'P',
+    validity_days: Number(m.settings.quote_validity_days) || 7, photos: [], type: 'carro_p',
   };
   if (existing) {
-    Object.assign(st, { size: existing.vehicle_size || 'P', vehicle_id: existing.vehicle_id, discount: existing.discount, surcharge: existing.surcharge, notes: existing.notes || '', internal_notes: existing.internal_notes || '', validity_days: existing.validity_days });
+    Object.assign(st, { type: existing.vehicle_type || (existing.vehicle_size === 'G' ? 'carro_g' : 'carro_p'), vehicle_id: existing.vehicle_id, discount: existing.discount, surcharge: existing.surcharge, notes: existing.notes || '', internal_notes: existing.internal_notes || '', validity_days: existing.validity_days });
     st.items = existing.items.map((i) => ({ service_id: i.service_id, name: i.name, price: i.price, cost: i.cost, op_cost: i.op_cost }));
     st.client = await api('/clients/' + existing.client_id);
   } else if (query.client) {
     st.client = await api('/clients/' + query.client);
-    if (st.client.vehicles.length === 1) st.vehicle_id = st.client.vehicles[0].id;
+    if (st.client.vehicles.length === 1) { st.vehicle_id = st.client.vehicles[0].id; st.type = st.client.vehicles[0].vehicle_type || st.type; }
   }
   const services = m.services.filter((s) => s.active);
   const cats = [...new Set(services.map((s) => s.category || 'Outros'))];
@@ -105,8 +105,8 @@ async function quoteForm(v, existing, query) {
     <section class="qq-section"><h2><span class="step-n" id="n1">1</span> Cliente</h2><div id="qqClient"></div></section>
     <section class="qq-section" id="secVeh"><h2><span class="step-n" id="n2">2</span> Veículo</h2><div id="qqVehicle"></div></section>
     <section class="qq-section"><h2><span class="step-n" id="n3">3</span> Serviços</h2>
-      <div class="opt-list" id="qqSize" style="margin-bottom:10px"><button type="button" class="opt" data-size="P">Carro pequeno</button><button type="button" class="opt" data-size="G">Carro grande / SUV</button></div>
-      ${cats.map((c) => `<div class="small muted bold" style="margin:6px 0">${esc(c)}</div><div class="svc-grid">${services.filter((s) => (s.category || 'Outros') === c).map((s) => `<button type="button" class="svc-btn" data-add="${s.id}"><b>${esc(s.name)}</b><span data-pr="${s.id}"></span></button>`).join('')}</div>`).join('')}
+      <div class="opt-list" id="qqSize" style="margin-bottom:10px">${m.vehicleTypes.map(([k, l]) => `<button type="button" class="opt" data-size="${k}">${esc(l)}</button>`).join('')}</div>
+      ${cats.map((c) => `<div data-cat><div class="small muted bold" style="margin:6px 0">${esc(c)}</div><div class="svc-grid">${services.filter((s) => (s.category || 'Outros') === c).map((s) => `<button type="button" class="svc-btn" data-add="${s.id}"><b>${esc(s.name)}</b><span data-pr="${s.id}"></span></button>`).join('')}</div></div>`).join('')}
       <div id="qqItems" style="margin-top:14px"></div>
       <button type="button" class="btn sm" id="qqFree">${icon('plus')} Item avulso</button>
       <div class="totals">
@@ -169,7 +169,7 @@ async function quoteForm(v, existing, query) {
     $('#qqNF').onsubmit = async (e) => {
       e.preventDefault();
       const d = formData(e.target);
-      if (d.v_model || d.v_plate) { const p = d.v_model.trim().split(/\s+/); d.vehicle = p.length > 1 ? { brand: p[0], model: p.slice(1).join(' '), plate: d.v_plate } : { model: d.v_model, plate: d.v_plate }; }
+      if (d.v_model || d.v_plate) { const p = d.v_model.trim().split(/\s+/); d.vehicle = { ...(p.length > 1 ? { brand: p[0], model: p.slice(1).join(' ') } : { model: d.v_model }), plate: d.v_plate, vehicle_type: st.type }; }
       try {
         const out = await post('/clients', d);
         await pickClient(out.id, out.vehicle_id); toast('Cliente cadastrado');
@@ -181,22 +181,33 @@ async function quoteForm(v, existing, query) {
   const pickClient = async (id, vehicleId) => {
     st.client = await api('/clients/' + id);
     st.vehicle_id = vehicleId || (st.client.vehicles.length === 1 ? st.client.vehicles[0].id : null);
+    const veh = st.client.vehicles.find((x) => x.id === st.vehicle_id); if (veh && veh.vehicle_type) setType(veh.vehicle_type);
     renderClient(); renderVehicle();
   };
   const renderVehicle = () => {
     const box = $('#qqVehicle');
     $('#n2').classList.toggle('ok', !!st.vehicle_id);
     if (!st.client) { box.innerHTML = ''; return; }
-    box.innerHTML = `<div class="opt-list">${st.client.vehicles.map((x) => `<button type="button" class="opt ${x.id === st.vehicle_id ? 'active' : ''}" data-v="${x.id}">${icon('car', 'width="16" height="16" style="vertical-align:-3px"')} ${esc([x.brand, x.model].filter(Boolean).join(' ') || 'Veículo')}${x.plate ? ' · ' + esc(x.plate) : ''}</button>`).join('')}
+    box.innerHTML = `<div class="opt-list">${st.client.vehicles.map((x) => `<button type="button" class="opt ${x.id === st.vehicle_id ? 'active' : ''}" data-v="${x.id}">${icon('car', 'width="16" height="16" style="vertical-align:-3px"')} ${esc([x.brand, x.model].filter(Boolean).join(' ') || 'Veículo')}${x.plate ? ' · ' + esc(x.plate) : ''}${x.vehicle_type ? ` <small class="muted">(${esc(vtLabel(x.vehicle_type))})</small>` : ''}</button>`).join('')}
       <button type="button" class="opt" id="qqNV">${icon('plus', 'width="16" height="16" style="vertical-align:-3px"')} Novo veículo</button></div>`;
-    $$('[data-v]', box).forEach((b) => { b.onclick = () => { st.vehicle_id = st.vehicle_id === Number(b.dataset.v) ? null : Number(b.dataset.v); renderVehicle(); }; });
-    $('#qqNV').onclick = () => vehicleForm(st.client.id, {}, async (out) => { st.client = await api('/clients/' + st.client.id); st.vehicle_id = out.id; renderVehicle(); });
+    $$('[data-v]', box).forEach((b) => {
+      b.onclick = () => {
+        st.vehicle_id = st.vehicle_id === Number(b.dataset.v) ? null : Number(b.dataset.v);
+        const veh = st.client.vehicles.find((x) => x.id === st.vehicle_id); if (veh && veh.vehicle_type) setType(veh.vehicle_type);
+        renderVehicle();
+      };
+    });
+    $('#qqNV').onclick = () => vehicleForm(st.client.id, { vehicle_type: st.type }, async (out) => {
+      st.client = await api('/clients/' + st.client.id); st.vehicle_id = out.id;
+      const veh = st.client.vehicles.find((x) => x.id === out.id); if (veh && veh.vehicle_type) setType(veh.vehicle_type);
+      renderVehicle();
+    });
   };
   const totals = () => {
     const sub = st.items.reduce((s, i) => s + num(i.price), 0);
     const tot = Math.max(0, sub - num(st.discount) + num(st.surcharge));
     $('#qqSub').textContent = brl(sub); $('#qqTot').textContent = brl(tot); $('#qqTot2').textContent = brl(tot);
-    const floor = st.items.reduce((s, i) => { const sv = services.find((x) => x.id === i.service_id); return s + (sv ? minPrice(sv, st.size) : 0); }, 0);
+    const floor = st.items.reduce((s, i) => { const sv = services.find((x) => x.id === i.service_id); return s + (sv ? minPrice(sv, st.type) : 0); }, 0);
     const w = $('#qqFloor'); if (w) { w.classList.toggle('hidden', !(st.items.length && tot < floor)); w.textContent = `⚠ Total abaixo do preço mínimo (${brl(floor)}): o caixa não cobre insumos e custos fixos.`; }
     $('#n3').classList.toggle('ok', st.items.length > 0);
     $$('.svc-btn').forEach((b) => b.classList.toggle('added', st.items.some((i) => String(i.service_id) === b.dataset.add)));
@@ -216,26 +227,30 @@ async function quoteForm(v, existing, query) {
     $$('[data-prm]').forEach((b) => { b.onclick = () => { URL.revokeObjectURL(st.photos[b.dataset.prm].url); st.photos.splice(b.dataset.prm, 1); renderPhotos(); }; });
   };
 
-  // Preço e custo conforme o porte do veículo (P = pequeno, G = grande)
-  const priceOf = (s) => (st.size === 'G' && s.price_large != null ? s.price_large : s.price);
-  const costOf = (s) => (st.size === 'G' && s.cost_large != null ? s.cost_large : s.cost) || 0;
-  const opOf = (s) => (st.size === 'G' && s.op_cost_large != null ? s.op_cost_large : s.op_cost) || 0;
+  // Preço e custos conforme o tipo de veículo (tabela serviço × veículo)
+  const rowOf = (s) => priceRow(s, st.type);
   const renderSize = () => {
-    $$('#qqSize [data-size]').forEach((b) => b.classList.toggle('active', b.dataset.size === st.size));
-    services.forEach((s) => { const el = $(`[data-pr="${s.id}"]`); if (el) el.textContent = priceOf(s) ? brl(priceOf(s)) : 'preço a combinar'; });
+    $$('#qqSize [data-size]').forEach((b) => b.classList.toggle('active', b.dataset.size === st.type));
+    services.forEach((s) => {
+      const r = rowOf(s); const btn = $(`[data-add="${s.id}"]`);
+      if (btn) btn.classList.toggle('hidden', !r);
+      const el = $(`[data-pr="${s.id}"]`); if (el && r) el.textContent = r.price != null ? brl(r.price) : 'preço a combinar';
+    });
+    $$('[data-cat]').forEach((c) => c.classList.toggle('hidden', !$$('.svc-btn:not(.hidden)', c).length));
   };
-  $$('#qqSize [data-size]').forEach((b) => {
-    b.onclick = () => {
-      st.size = b.dataset.size;
-      // reprecifica os itens da tabela que têm preço diferente por porte
-      st.items.forEach((it) => { const s = services.find((x) => x.id === it.service_id); if (s && s.price_large != null) { it.price = priceOf(s); it.cost = costOf(s); it.op_cost = opOf(s); } });
-      renderSize(); renderItems();
-    };
-  });
+  const setType = (t) => {
+    if (!t || t === st.type) return;
+    st.type = t;
+    // reprecifica os itens que têm preço definido para o novo tipo
+    st.items.forEach((it) => { const s = services.find((x) => x.id === it.service_id); const r = s && rowOf(s); if (r && r.price != null) { it.price = r.price; it.cost = r.cost || 0; it.op_cost = r.op_cost || 0; } });
+    renderSize(); renderItems();
+  };
+  $$('#qqSize [data-size]').forEach((b) => { b.onclick = () => setType(b.dataset.size); });
   $$('[data-add]').forEach((b) => {
     b.onclick = () => {
       const s = services.find((x) => x.id == b.dataset.add);
-      st.items.push({ service_id: s.id, name: s.name, price: priceOf(s), cost: costOf(s), op_cost: opOf(s) });
+      const r = rowOf(s) || {};
+      st.items.push({ service_id: s.id, name: s.name, price: r.price || 0, cost: r.cost || 0, op_cost: r.op_cost || 0 });
       renderItems();
     };
   });
@@ -249,7 +264,7 @@ async function quoteForm(v, existing, query) {
     st.items = st.items.filter((i) => String(i.name).trim());
     if (!st.items.length) { toast('Adicione pelo menos um serviço', true); renderItems(); return; }
     const body = {
-      client_id: st.client.id, vehicle_id: st.vehicle_id, vehicle_size: st.size, items: st.items, discount: st.discount, surcharge: st.surcharge,
+      client_id: st.client.id, vehicle_id: st.vehicle_id, vehicle_type: st.type, items: st.items, discount: st.discount, surcharge: st.surcharge,
       notes: $('#qqNotes').value, internal_notes: $('#qqInt').value, validity_days: $('#qqVal').value,
     };
     $('#qqSave').disabled = $('#qqShare').disabled = true;
@@ -398,7 +413,7 @@ route(/^#\/orcamento\/(\d+)$/, async (v, [id]) => {
   <div class="page-head"><a class="btn ghost sm" href="#/orcamentos">${icon('back')}</a><h1>Orçamento #${q.id}</h1>${statusTag(q.status)}${q.source !== 'manual' ? '<span class="tag site">SITE</span>' : ''}</div>
   <div class="card">
     <a href="#/cliente/${q.client_id}" style="text-decoration:none"><b style="font-size:17px">${esc(q.client_name)}</b> <span class="tag">${esc(q.origin_name || 'sem origem')}</span></a>
-    <div class="small muted">${esc(q.whatsapp || 'sem WhatsApp')}${veh ? ' · ' + esc(veh) : ''}${q.plate ? ' · ' + esc(q.plate) : ''}</div>
+    <div class="small muted">${esc(q.whatsapp || 'sem WhatsApp')}${veh ? ' · ' + esc(veh) : ''}${q.plate ? ' · ' + esc(q.plate) : ''}${q.vehicle_type ? ` · <span class="tag">${esc(vtLabel(q.vehicle_type))}</span>` : ''}</div>
     <div class="actions" style="margin-top:12px">${actions.map((a) => A[a]).join('')}</div>
     ${q.status === 'standby' ? `<p class="small" style="background:#f3e8ff;padding:10px;border-radius:10px;margin-bottom:0"><b>Stand-by:</b> ${esc(q.standby_reason)}${q.standby_note ? ' — ' + esc(q.standby_note) : ''} · desde ${fdate(q.standby_at)}</p>` : ''}
   </div>

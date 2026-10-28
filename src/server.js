@@ -142,8 +142,10 @@ app.post('/api/public/lead', (req, res) => {
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(client.id, vehicleId, 'criado', str(b.source) || 'site', str(b.service), null, str(b.message),
       crypto.randomBytes(18).toString('base64url'), 'Site', now(), now()).lastInsertRowid;
     if (b.service) {
-      const svc = db.prepare('SELECT id, name, price, cost, op_cost FROM services WHERE active = 1 AND name LIKE ?').get(`%${b.service}%`);
-      if (svc) db.prepare('INSERT INTO quote_items(quote_id, service_id, name, price, cost, op_cost) VALUES (?,?,?,?,?,?)').run(qid, svc.id, svc.name, svc.price, svc.cost || 0, svc.op_cost || 0);
+      // Usa a linha "carro pequeno" da tabela (ou a primeira com preço) — o gestor ajusta o tipo ao revisar
+      const svc = db.prepare(`SELECT s.id, s.name, p.price, p.cost, p.op_cost FROM services s JOIN service_prices p ON p.service_id = s.id AND p.active = 1
+        WHERE s.active = 1 AND s.name LIKE ? ORDER BY CASE p.vehicle_type WHEN 'carro_p' THEN 0 ELSE 1 END, p.price IS NULL LIMIT 1`).get(`%${b.service}%`);
+      if (svc) db.prepare('INSERT INTO quote_items(quote_id, service_id, name, price, cost, op_cost) VALUES (?,?,?,?,?,?)').run(qid, svc.id, svc.name, svc.price || 0, svc.cost || 0, svc.op_cost || 0);
       recalcQuote(qid);
     }
     advanceStage(client.id, 'novo');

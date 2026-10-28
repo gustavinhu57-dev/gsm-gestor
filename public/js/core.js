@@ -26,14 +26,16 @@ function pricing() {
   const fixo = (Number(st.custos_fixos_mes) || 0) / (Number(st.meta_faturamento_mes) || 1);
   return { caixa, fixo, folga: caixa - fixo };
 }
-function minPrice(s, size) {
-  const g = size === 'G';
-  const mat = (g && s.cost_large != null ? s.cost_large : s.cost) || 0;
-  const op = (g && s.op_cost_large != null ? s.op_cost_large : s.op_cost) || 0;
+// Linha de preço de um serviço para um tipo de veículo (null se o serviço não atende esse tipo)
+const priceRow = (s, type) => (s.prices || []).find((p) => p.vehicle_type === type && p.active) || null;
+const vtLabel = (k) => (S.meta.vehicleTypes.find((t) => t[0] === k) || [k, 'Não informado'])[1];
+function minPriceRow(row) {
+  if (!row) return 0;
   const { caixa, folga } = pricing();
   if (folga <= 0) return Infinity;
-  return Math.ceil((op + caixa * mat) / folga) || 0;
+  return Math.ceil(((row.op_cost || 0) + caixa * (row.cost || 0)) / folga) || 0;
 }
+const minPrice = (s, type) => minPriceRow(priceRow(s, type));
 const firstName = (n) => String(n || '').split(' ')[0];
 const stageLabel = (k) => (S.meta.stages.find((s) => s[0] === k) || [k, k])[1];
 const STATUS = { criado: 'Criado', enviado: 'Enviado', aprovado: 'Fechado', executado: 'Executado', standby: 'Stand-by' };
@@ -134,7 +136,7 @@ document.addEventListener('click', (e) => {
 
 // ---------- Layout ----------
 const MENU = [
-  ['#/', 'Dashboard', 'home'], ['#/clientes', 'Clientes', 'users'], ['#/crm', 'CRM', 'kanban'],
+  ['#/', 'Dashboard', 'home'], ['#/metas', 'Metas', 'flag'], ['#/clientes', 'Clientes', 'users'], ['#/crm', 'CRM', 'kanban'],
   ['#/orcamentos', 'Orçamentos', 'file'], ['#/followups', 'Follow-ups', 'clock'], ['#/servicos', 'Serviços', 'tag'],
   ['#/financeiro', 'Financeiro', 'money'], ['#/campanhas', 'Campanhas', 'flag'], ['#/fotos', 'Fotos', 'image'], ['#/config', 'Configurações', 'gear'],
 ];

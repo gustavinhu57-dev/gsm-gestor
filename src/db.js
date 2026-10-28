@@ -39,6 +39,11 @@ const COST_CATEGORIES = ['Material', 'Produtos', 'Mão de obra', 'Comissão/parc
 const EXPENSE_CATEGORIES = ['Aluguel', 'Energia', 'Marketing', 'Combustível', 'Ferramentas', 'Software', 'Manutenção', 'Administrativo', 'Outros'];
 const PAYMENT_METHODS = ['Pix', 'Dinheiro', 'Cartão de crédito', 'Cartão de débito', 'Transferência', 'Outro'];
 const ROLES = ['admin', 'comercial', 'operacional', 'financeiro'];
+// Tipos de veículo atendidos (cada serviço tem preço/custos por tipo)
+const VEHICLE_TYPES = [
+  ['carro_p', 'Carro pequeno'], ['carro_g', 'Carro grande / SUV'], ['caminhao', 'Caminhão'],
+  ['moto', 'Moto'], ['lancha', 'Lancha'], ['residencial', 'Residencial (sofá, cadeira)'],
+];
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -135,6 +140,12 @@ if (!hasCol('quote_items', 'cost')) db.exec('ALTER TABLE quote_items ADD COLUMN 
 if (!hasCol('services', 'op_cost')) db.exec('ALTER TABLE services ADD COLUMN op_cost REAL NOT NULL DEFAULT 0');
 if (!hasCol('services', 'op_cost_large')) db.exec('ALTER TABLE services ADD COLUMN op_cost_large REAL');
 if (!hasCol('quote_items', 'op_cost')) db.exec('ALTER TABLE quote_items ADD COLUMN op_cost REAL NOT NULL DEFAULT 0');
+db.exec(`CREATE TABLE IF NOT EXISTS service_prices (
+  id INTEGER PRIMARY KEY, service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE, vehicle_type TEXT NOT NULL,
+  price REAL, cost REAL NOT NULL DEFAULT 0, op_cost REAL NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1,
+  UNIQUE(service_id, vehicle_type))`);
+if (!hasCol('quotes', 'vehicle_type')) db.exec('ALTER TABLE quotes ADD COLUMN vehicle_type TEXT');
+if (!hasCol('vehicles', 'vehicle_type')) db.exec('ALTER TABLE vehicles ADD COLUMN vehicle_type TEXT');
 if (!hasCol('quotes', 'barbosa_helped')) db.exec('ALTER TABLE quotes ADD COLUMN barbosa_helped INTEGER NOT NULL DEFAULT 0');
 if (!hasCol('quotes', 'vehicle_size')) db.exec("ALTER TABLE quotes ADD COLUMN vehicle_size TEXT DEFAULT 'P'");
 
@@ -196,7 +207,7 @@ function seed() {
     split_socio2_nome: 'Barbosa', split_socio2: '40',
     split_caixa: '20', prolabore_meta: '2000',
     // Precificação: custos fixos do mês (pagos pelo caixa) e faturamento-meta do mês para ratear esses custos
-    custos_fixos_mes: '350', meta_faturamento_mes: '15000',
+    custos_fixos_mes: '350', meta_faturamento_mes: '15000', meta_desafio_mes: '50000', taxa_fechamento_meta: '20',
     // Estética (lavagens, higienização, polimento, farol) é feita por Gustavo + Carlinhos: a parte do Carlinhos fica na GSM
     split_estetica_nome: 'Carlinhos (fica na GSM: material e máquinas)',
     // Taxas da maquininha (%), lançadas como custo quando o pagamento é no cartão. Vazio = não lança.
@@ -278,6 +289,45 @@ const CATALOG_V3 = {
   })();
 })();
 
+// 28/10: serviço × tipo de veículo. Capa de carro/caminhão + banco de moto viram "Capa de banco" (carro, caminhão, moto, lancha).
+// Preço NULL = atende esse tipo, mas o preço ainda está "a definir".
+(function applyCatalogV6() {
+  if (db.prepare("SELECT 1 FROM settings WHERE key = 'catalog_version' AND value >= '6'").get()) return;
+  db.transaction(() => {
+    const svc = (name) => db.prepare('SELECT * FROM services WHERE name = ? AND active = 1').get(name);
+    const put = db.prepare(`INSERT INTO service_prices(service_id, vehicle_type, price, cost, op_cost) VALUES (?,?,?,?,?)
+      ON CONFLICT(service_id, vehicle_type) DO UPDATE SET price = excluded.price, cost = excluded.cost, op_cost = excluded.op_cost, active = 1`);
+    // 1) Todo serviço de carro ganha linhas carro pequeno / carro grande a partir dos preços atuais
+    for (const s of db.prepare('SELECT * FROM services WHERE active = 1').all()) {
+      if (['Capa de caminhão', 'Banco de moto', 'Painel e colchão', 'Sofá retrátil', 'Restauração de cadeira', 'Outros'].includes(s.name)) continue;
+      put.run(s.id, 'carro_p', s.price || null, s.cost || 0, s.op_cost || 0);
+      put.run(s.id, 'carro_g', (s.price_large ?? s.price) || null, (s.cost_large ?? s.cost) || 0, (s.op_cost_large ?? s.op_cost) || 0);
+    }
+    // 2) Capa de banco: carro (R$400), caminhão (R$700), moto (R$350), lancha (a definir)
+    const capa = svc('Capa de carro'); const cam = svc('Capa de caminhão'); const moto = svc('Banco de moto');
+    if (capa) {
+      db.prepare("UPDATE services SET name = 'Capa de banco', description = 'Capas e revestimento de bancos sob medida' WHERE id = ?").run(capa.id);
+      if (cam) { put.run(capa.id, 'caminhao', cam.price, cam.cost, cam.op_cost); db.prepare('UPDATE services SET active = 0 WHERE id = ?').run(cam.id); }
+      if (moto) { put.run(capa.id, 'moto', moto.price, moto.cost, moto.op_cost); db.prepare('UPDATE services SET active = 0 WHERE id = ?').run(moto.id); }
+      put.run(capa.id, 'lancha', null, 0, 2);
+    }
+    // 3) Farol: carro (R$200, material R$50); caminhão e moto a definir
+    const farol = svc('Restauração de farol');
+    if (farol) { put.run(farol.id, 'caminhao', null, 50, 1); put.run(farol.id, 'moto', null, 50, 1); }
+    // 4) Polimento: também caminhão, moto e lancha (a definir). Higienização: também caminhão (cabine) e lancha (a definir)
+    for (const n of ['Polimento comercial', 'Polimento técnico']) { const s = svc(n); if (s) ['caminhao', 'moto', 'lancha'].forEach((t) => put.run(s.id, t, null, 0, s.op_cost_large ?? s.op_cost ?? 0)); }
+    const hig = svc('Higienização');
+    if (hig) ['caminhao', 'lancha'].forEach((t) => put.run(hig.id, t, null, 0, hig.op_cost_large ?? hig.op_cost ?? 0));
+    // 5) Só caminhão / residencial
+    const pc = svc('Painel e colchão'); if (pc) { put.run(pc.id, 'caminhao', pc.price, pc.cost, pc.op_cost); db.prepare("UPDATE services SET category = 'Tapeçaria' WHERE id = ?").run(pc.id); }
+    for (const n of ['Sofá retrátil', 'Restauração de cadeira']) { const s = svc(n); if (s) put.run(s.id, 'residencial', s.price || null, s.cost || 0, s.op_cost || 0); }
+    const out = svc('Outros'); if (out) VEHICLE_TYPES.forEach(([t]) => put.run(out.id, t, null, 0, 0));
+    // 6) Orçamentos antigos: porte P/G → tipo de veículo
+    db.prepare("UPDATE quotes SET vehicle_type = CASE vehicle_size WHEN 'G' THEN 'carro_g' ELSE 'carro_p' END WHERE vehicle_type IS NULL").run();
+    db.prepare("INSERT INTO settings(key, value) VALUES ('catalog_version', '6') ON CONFLICT(key) DO UPDATE SET value = '6'").run();
+  })();
+})();
+
 function getSettings() {
   return Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((r) => [r.key, r.value]));
 }
@@ -285,5 +335,5 @@ function getSettings() {
 module.exports = {
   db, DATA_DIR, now, today, addDays, getSettings,
   STAGES, STAGE_IDX, CLIENT_TYPES, STANDBY_REASONS, PHOTO_CATEGORIES, PHOTO_PHASES,
-  COST_CATEGORIES, EXPENSE_CATEGORIES, PAYMENT_METHODS, ROLES,
+  COST_CATEGORIES, EXPENSE_CATEGORIES, PAYMENT_METHODS, ROLES, VEHICLE_TYPES,
 };

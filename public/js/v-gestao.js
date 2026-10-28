@@ -25,7 +25,7 @@ route(/^#\/$/, async (v, _, query) => {
   const maxF = Math.max(1, fn.leads, fn.orcamentos);
   const conv = (a, b) => (b ? Math.round((a / b) * 100) + '%' : '—');
   const svcList = (arr, key, fmt) => arr.length ? arr.map((s) => `<div class="row small" style="padding:5px 0;border-bottom:1px solid var(--line)"><span>${esc(s.name)}</span><b class="auto">${fmt(s[key])}</b></div>`).join('') : '<div class="small muted">Sem serviços executados no período</div>';
-  v.innerHTML = `<div class="page-head"><h1>Olá, ${esc(firstName(S.me.name))}</h1><a class="btn gold" href="#/orcamento/novo">${icon('plus')} Orçamento rápido</a></div>
+  v.innerHTML = `<div class="page-head"><h1>Olá, ${esc(firstName(S.me.name))}</h1><a class="btn" href="#/metas">${icon('flag')} Metas</a><a class="btn gold" href="#/orcamento/novo">${icon('plus')} Orçamento rápido</a></div>
     ${per.html}
     <div class="grid g2 md-g3 lg-g6" style="margin-bottom:12px">
       <a class="kpi dark" href="#/financeiro?p=${query.p || 'mes'}"><small>Faturamento</small><strong>${brl(k.faturamento)}</strong><em>serviços executados</em></a>
@@ -189,6 +189,7 @@ route(/^#\/config$/, async (v) => {
       <label class="f"><span>Follow-up após envio (dias)</span><input class="i" name="followup_after_send_days" inputmode="numeric" value="${esc(s.followup_after_send_days)}"></label></div>
       <div class="row"><label class="f"><span>Sócio 1</span><input class="i" name="split_socio1_nome" value="${esc(s.split_socio1_nome)}"></label><label class="f"><span>% sócio 1</span><input class="i" name="split_socio1" inputmode="numeric" value="${esc(s.split_socio1)}"></label></div>
       <div class="row"><label class="f"><span>Sócio 2</span><input class="i" name="split_socio2_nome" value="${esc(s.split_socio2_nome)}"></label><label class="f"><span>% sócio 2</span><input class="i" name="split_socio2" inputmode="numeric" value="${esc(s.split_socio2)}"></label></div>
+      <div class="row"><label class="f"><span>Meta desafio do mês (R$)</span><input class="i" name="meta_desafio_mes" inputmode="numeric" value="${esc(s.meta_desafio_mes)}"></label><label class="f"><span>Taxa de fechamento esperada (%)</span><input class="i" name="taxa_fechamento_meta" inputmode="numeric" value="${esc(s.taxa_fechamento_meta)}"></label></div>
       <div class="row"><label class="f"><span>Custos fixos do mês (luz, internet, comunicação visual…)</span><input class="i" name="custos_fixos_mes" inputmode="numeric" value="${esc(s.custos_fixos_mes)}"></label><label class="f"><span>Meta de faturamento do mês</span><input class="i" name="meta_faturamento_mes" inputmode="numeric" value="${esc(s.meta_faturamento_mes)}"></label></div>
       <label class="f"><span>Na estética (sem o ${esc(s.split_socio2_nome)}), os ${esc(s.split_socio2)}% vão para</span><input class="i" name="split_estetica_nome" value="${esc(s.split_estetica_nome)}"></label>
       <div class="row"><label class="f"><span>Taxa maquininha débito (%)</span><input class="i" name="taxa_debito" inputmode="decimal" value="${esc(s.taxa_debito)}" placeholder="ex.: 1,99"></label><label class="f"><span>Taxa maquininha crédito (%)</span><input class="i" name="taxa_credito" inputmode="decimal" value="${esc(s.taxa_credito)}" placeholder="ex.: 4,99"></label></div>
@@ -229,4 +230,49 @@ route(/^#\/config$/, async (v) => {
   $('#orF').onsubmit = async (e) => { e.preventDefault(); await run(() => post('/origins', formData(e.target))); toast('Origem criada'); reload(); };
   const us = $('#usF'); if (us) us.onsubmit = async (e) => { e.preventDefault(); await run(() => post('/users', formData(e.target))); toast('Usuário criado'); reload(); };
   $('#pwF').onsubmit = async (e) => { e.preventDefault(); await run(() => put('/me/password', formData(e.target))); e.target.reset(); toast('Senha alterada'); };
+});
+
+// ---------- METAS: meta x realizado, por tipo de veículo, serviço e origem ----------
+route(/^#\/metas$/, async (v, _, query) => {
+  const t = todayStr();
+  const mes = query.mes || t.slice(0, 7);
+  const from = mes + '-01';
+  const end = (() => { const d = new Date(from + 'T12:00:00'); d.setMonth(d.getMonth() + 1); d.setDate(0); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); })();
+  const g = await api(`/goals?from=${from}&to=${end}`);
+  const taxa = g.metas.taxa_fechamento || 0.2;
+  const passados = Math.max(1, g.dias.total - g.dias.restantes);
+  const ritmo = g.realizado / passados;
+  const bar = (meta, label) => {
+    if (!meta) return '';
+    const real = Math.min(100, (g.realizado / meta) * 100); const fech = Math.min(100 - real, (g.fechado_a_executar / meta) * 100);
+    const falta = Math.max(0, meta - g.realizado - g.fechado_a_executar);
+    const vendas = g.ticket ? Math.ceil(falta / g.ticket) : null;
+    return `<div style="margin-bottom:16px">
+      <div class="row" style="margin-bottom:6px"><b>${label}: ${brl0(meta)}</b><span class="auto bold">${pct(g.realizado / meta)}</span></div>
+      <div class="progress" style="height:16px;display:flex"><div style="width:${real}%;background:var(--dark)"></div><div style="width:${fech}%;background:var(--gold)"></div></div>
+      <div class="small muted" style="margin-top:6px">Realizado ${brl0(g.realizado)} · fechado a executar ${brl0(g.fechado_a_executar)}</div>
+      ${falta > 0 ? `<div class="small" style="margin-top:4px">Faltam <b>${brl0(falta)}</b>${g.dias.restantes ? ` em ${g.dias.restantes} dias úteis = <b>${brl0(falta / g.dias.restantes)}/dia</b>` : ''}${vendas ? ` · ~<b>${vendas} vendas</b> → ~<b>${Math.ceil(vendas / taxa)} orçamentos</b> (a ${pct(taxa)} de fechamento)` : ''}</div>` : '<div class="small green bold" style="margin-top:4px">Meta atingida! 🎉</div>'}
+    </div>`;
+  };
+  const table = (rows, first, withLeads, withShare) => {
+    const totFat = rows.reduce((s, r) => s + r.faturamento, 0);
+    if (!rows.length) return '<div class="small muted">Sem dados neste mês.</div>';
+    return `<div class="scroll-x"><table class="t" style="min-width:${withLeads ? 620 : 520}px"><tr><th>${first}</th>${withLeads ? '<th class="n">Leads</th>' : ''}<th class="n">Orçam.</th><th class="n">Orçado</th><th class="n">Vendas</th><th class="n">Faturamento</th><th class="n">Sobra</th><th class="n">% fat.</th>${withShare ? '<th class="n">Meta</th>' : ''}</tr>
+      ${rows.map((r) => `<tr><td>${esc(r.nome)}</td>${withLeads ? `<td class="n">${r.leads || 0}</td>` : ''}<td class="n">${r.orcamentos}</td><td class="n">${brl0(r.orcado)}</td><td class="n">${r.vendas}</td><td class="n bold">${brl0(r.faturamento)}</td><td class="n">${brl0(r.sobra)}</td><td class="n">${totFat ? pct(r.faturamento / totFat) : '—'}</td>${withShare ? `<td class="n muted">20%</td>` : ''}</tr>`).join('')}
+    </table></div>`;
+  };
+  v.innerHTML = `<div class="page-head"><h1>Metas</h1><input class="i auto" type="month" id="mMes" value="${mes}" style="max-width:170px"></div>
+    <div class="card">${bar(g.metas.base, 'Meta')}${bar(g.metas.desafio, 'Desafio')}
+      <div class="grid g2 md-g4">
+        <div class="kpi"><small>Ritmo atual</small><strong>${brl0(ritmo)}</strong><em>por dia útil (${passados} de ${g.dias.total})</em></div>
+        <div class="kpi"><small>Ticket médio</small><strong>${g.ticket ? brl0(g.ticket) : '—'}</strong><em>${g.vendas} venda(s) no mês</em></div>
+        <div class="kpi ${g.taxa_real != null && g.taxa_real < taxa ? 'alert' : ''}"><small>Fechamento</small><strong>${g.taxa_real == null ? '—' : pct(g.taxa_real)}</strong><em>meta ${pct(taxa)} · ${g.orcamentos} orçamentos</em></div>
+        <a class="kpi" href="#/orcamentos?tab=enviados"><small>Aguardando resposta</small><strong>${g.enviados}</strong><em>${brl0(g.enviados_valor)} · ~${brl0(g.enviados_valor * taxa)} esperado</em></a>
+      </div>
+      <p class="tiny muted" style="margin-bottom:0">Metas e taxa de fechamento em Configurações. Dias úteis: segunda a sábado, sem feriados.</p></div>
+    <div class="card"><h2>Por tipo de veículo</h2>${table(g.porTipo, 'Veículo')}</div>
+    <div class="card"><h2>Por serviço</h2>${table(g.porServico, 'Serviço')}</div>
+    <div class="card"><h2>Por origem do cliente</h2>${table(g.porOrigem, 'Origem', true, true)}
+      <p class="tiny muted" style="margin-bottom:0">Meta inicial de 20% para cada origem (estimativa). Os números reais vão substituindo a estimativa.</p></div>`;
+  $('#mMes').onchange = (e) => { location.hash = '#/metas?mes=' + e.target.value; };
 });

@@ -13,7 +13,8 @@ function clientForm(c = {}, onSaved) {
     ${isNew ? `<div class="row">
       <label class="f"><span>Marca/modelo</span><input class="i" name="v_model" placeholder="Ex.: Chevrolet Onix"></label>
       <label class="f auto" style="width:120px"><span>Placa</span><input class="i" name="v_plate" style="text-transform:uppercase" placeholder="ABC1D23"></label>
-    </div>` : ''}
+    </div>
+    <label class="f"><span>Tipo de veículo</span><select class="i" name="v_type">${opts(m.vehicleTypes, 'carro_p')}</select></label>` : ''}
     <div class="row">
       <label class="f"><span>Responsável</span><select class="i" name="owner">${opts(m.users.map((u) => u.name), c.owner || S.me.name, '—')}</select></label>
       <label class="f"><span>Campanha</span><select class="i" name="campaign_id">${opts(m.campaigns.filter((x) => x.active || x.id === c.campaign_id), c.campaign_id, 'Nenhuma')}</select></label>
@@ -32,7 +33,7 @@ function clientForm(c = {}, onSaved) {
       const d = formData(e.target);
       if (isNew && (d.v_model || d.v_plate)) {
         const parts = d.v_model.trim().split(/\s+/);
-        d.vehicle = parts.length > 1 ? { brand: parts[0], model: parts.slice(1).join(' '), plate: d.v_plate } : { model: d.v_model, plate: d.v_plate };
+        d.vehicle = parts.length > 1 ? { brand: parts[0], model: parts.slice(1).join(' '), plate: d.v_plate, vehicle_type: d.v_type } : { model: d.v_model, plate: d.v_plate, vehicle_type: d.v_type };
       }
       try {
         let out;
@@ -50,6 +51,7 @@ function clientForm(c = {}, onSaved) {
 
 function vehicleForm(clientId, v = {}, onSaved) {
   modal(v.id ? 'Editar veículo' : 'Novo veículo', `<form id="vf">
+    <label class="f"><span>Tipo</span><select class="i" name="vehicle_type">${opts(S.meta.vehicleTypes, v.vehicle_type || 'carro_p')}</select></label>
     <div class="row"><label class="f"><span>Marca</span><input class="i" name="brand" value="${esc(v.brand)}" placeholder="Chevrolet"></label>
     <label class="f"><span>Modelo</span><input class="i" name="model" value="${esc(v.model)}" placeholder="Onix"></label></div>
     <div class="row"><label class="f"><span>Ano</span><input class="i" name="year" inputmode="numeric" value="${esc(v.year)}"></label>
@@ -157,7 +159,7 @@ route(/^#\/cliente\/(\d+)$/, async (v, [id]) => {
 
   <div class="card"><div class="row" style="margin-bottom:8px"><h2 style="margin:0">Veículos</h2><button class="btn sm auto" id="cnv">${icon('plus')} Veículo</button></div>
     ${c.vehicles.length ? c.vehicles.map((x) => `<div class="item" style="display:flex;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer" data-veh="${x.id}">
-      ${icon('car', 'width="22" height="22" style="flex:none;margin-right:10px;color:var(--mute)"')}<div class="main"><b>${esc([x.brand, x.model].filter(Boolean).join(' ') || 'Veículo')}</b>
+      ${icon('car', 'width="22" height="22" style="flex:none;margin-right:10px;color:var(--mute)"')}<div class="main"><b>${esc([x.brand, x.model].filter(Boolean).join(' ') || 'Veículo')}</b> ${x.vehicle_type ? `<span class="tag">${esc(vtLabel(x.vehicle_type))}</span>` : ''}
       <div class="sub">${esc([x.year, x.color, x.plate].filter(Boolean).join(' · ') || '—')}${x.notes ? ' · ' + esc(x.notes) : ''}</div></div></div>`).join('') : '<div class="muted small">Nenhum veículo cadastrado</div>'}
   </div>
 
@@ -194,56 +196,60 @@ function eventForm(clientId) {
   });
 }
 
-// ---------- Serviços / tabela de preços ----------
+// ---------- Serviços / tabela de preços (por tipo de veículo) ----------
 route(/^#\/servicos$/, async (v) => {
   const list = await api('/services');
-  const cats = [...new Set(list.map((s) => s.category || 'Outros'))];
+  const cats = [...new Set(list.filter((s) => s.active).map((s) => s.category || 'Outros'))];
   const pr = pricing(); const st = S.meta.settings;
-  const under = list.filter((s) => s.active && ((s.price && s.price < minPrice(s, 'P')) || (s.price_large && s.price_large < minPrice(s, 'G'))));
+  const rowsOf = (s) => (s.prices || []).filter((p) => p.active);
+  const under = []; const pend = [];
+  list.filter((s) => s.active).forEach((s) => rowsOf(s).forEach((p) => {
+    if (p.price == null && s.name !== 'Outros') pend.push(`${s.name} (${vtLabel(p.vehicle_type)})`);
+    else if (p.price < minPriceRow(p)) under.push(`${s.name} (${vtLabel(p.vehicle_type)})`);
+  }));
   v.innerHTML = `<div class="page-head"><h1>Serviços e preços</h1><button class="btn gold" id="ns">${icon('plus')} Serviço</button></div>
     <div class="card small"><b>Como o preço mínimo é calculado</b><br>
       <span class="muted">O caixa recebe ${pct(pr.caixa)} de (preço − material) e precisa pagar os insumos e o operacional do serviço + ${pct(pr.fixo)} do preço para os custos fixos (${brl0(st.custos_fixos_mes)}/mês ÷ meta de ${brl0(st.meta_faturamento_mes)}).</span><br>
       <b>Preço mínimo = (insumos + operacional + ${pct(pr.caixa)} × material) ÷ ${(pr.folga * 100).toFixed(1).replace('.', ',')}%</b>
-      ${under.length ? `<div class="red bold" style="margin-top:6px">⚠ ${under.length} serviço(s) abaixo do mínimo: ${under.map((s) => esc(s.name)).join(', ')}</div>` : '<div class="green bold" style="margin-top:6px">Todos os preços estão acima do mínimo.</div>'}
-      <div class="tiny muted" style="margin-top:4px">Ajuste os custos fixos e a meta em Configurações.</div></div>
+      ${under.length ? `<div class="red bold" style="margin-top:6px">⚠ Abaixo do mínimo: ${under.map(esc).join(', ')}</div>` : '<div class="green bold" style="margin-top:6px">Nenhum preço abaixo do mínimo.</div>'}
+      ${pend.length ? `<div class="amber bold" style="margin-top:6px">Preço a definir (${pend.length}): ${pend.map(esc).join(', ')}</div>` : ''}</div>
     ${cats.map((cat) => `<div class="card tight"><h2 style="padding:14px 14px 0">${esc(cat)}</h2><div class="list">
-      ${list.filter((s) => (s.category || 'Outros') === cat).map((s) => `<div class="item" data-s="${s.id}"><div class="main">
-        <div class="title">${esc(s.name)} ${s.active ? '' : '<span class="tag red">inativo</span>'}</div><div class="sub">${esc(s.description || '')}</div><div style="margin-top:4px">${s.active ? floorTag(s) : ''}</div></div>
-        <div class="val">${svcPrice(s)}<div class="tiny muted" style="font-weight:600">${s.cost ? 'material ' + brl(s.cost) + (s.cost_large != null && s.cost_large !== s.cost ? ' / ' + brl(s.cost_large) : '') : 'sem material'}</div><div class="tiny muted" style="font-weight:600">insumos+oper. ${brl(s.op_cost || 0)}${s.op_cost_large != null && s.op_cost_large !== s.op_cost ? ' / ' + brl(s.op_cost_large) : ''}</div></div></div>`).join('')}</div></div>`).join('')}`;
+      ${list.filter((s) => s.active && (s.category || 'Outros') === cat).map((s) => `<div class="item" data-s="${s.id}"><div class="main">
+        <div class="title">${esc(s.name)}</div><div class="sub">${esc(s.description || '')}</div>
+        <table class="t small" style="margin-top:6px"><tr><th>Veículo</th><th class="n">Preço</th><th class="n">Material</th><th class="n">Insumos</th><th class="n">Mínimo</th></tr>
+        ${rowsOf(s).map((p) => { const m = minPriceRow(p); return `<tr><td>${esc(vtLabel(p.vehicle_type))}</td>
+          <td class="n ${p.price == null ? 'amber' : p.price < m ? 'red bold' : 'bold'}">${p.price == null ? 'a definir' : brl0(p.price)}${p.price != null && p.price < m ? ' ⚠' : ''}</td>
+          <td class="n">${p.cost ? brl0(p.cost) : '—'}</td><td class="n">${brl(p.op_cost || 0)}</td><td class="n muted">${brl0(m)}</td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">Nenhum tipo de veículo marcado</td></tr>'}</table>
+      </div></div>`).join('')}</div></div>`).join('')}
+    ${list.some((s) => !s.active) ? `<details class="card"><summary class="muted">Serviços inativos (${list.filter((s) => !s.active).length})</summary><div class="list">${list.filter((s) => !s.active).map((s) => `<div class="item" data-s="${s.id}"><div class="main"><div class="title">${esc(s.name)} <span class="tag red">inativo</span></div></div></div>`).join('')}</div></details>` : ''}`;
   $('#ns', v).onclick = () => serviceForm();
   $$('[data-s]', v).forEach((el) => { el.onclick = () => serviceForm(list.find((s) => s.id == el.dataset.s)); });
 });
-// Mostra o preço mínimo e alerta se o preço da tabela está abaixo
-function floorTag(s) {
-  const out = [];
-  [['P', s.price], ['G', s.price_large != null ? s.price_large : null]].forEach(([sz, pr]) => {
-    if (pr == null || (sz === 'G' && s.price_large === s.price && (s.op_cost_large ?? s.op_cost) === s.op_cost && (s.cost_large ?? s.cost) === s.cost)) return;
-    const m = minPrice(s, sz);
-    if (!pr) return;
-    out.push(`<span class="tag ${pr < m ? 'red' : ''}">${s.price_large != null && s.price_large !== s.price ? sz + ' ' : ''}mín. ${brl0(m)}${pr < m ? ' ⚠' : ''}</span>`);
-  });
-  return out.join(' ');
-}
-const svcPrice = (s) => (!s.price ? '<span class="amber">a definir</span>' : s.price_large != null && s.price_large !== s.price ? `P ${brl(s.price)}<br>G ${brl(s.price_large)}` : brl(s.price));
-function serviceForm(s = { active: 1 }) {
-  const cats = [...new Set(['Lavagem', 'Higienização', 'Polimento', 'Tapeçaria', 'Caminhão', 'Moto', 'Sofá / residencial', 'Outros', ...S.meta.services.map((x) => x.category).filter(Boolean)])];
+function serviceForm(s = { active: 1, prices: [] }) {
+  const cats = [...new Set(['Lavagem', 'Higienização', 'Polimento', 'Tapeçaria', 'Outros', ...S.meta.services.map((x) => x.category).filter(Boolean)])];
+  const row = (t) => (s.prices || []).find((p) => p.vehicle_type === t) || {};
   modal(s.id ? 'Editar serviço' : 'Novo serviço', `<form id="sf">
     <label class="f"><span>Nome *</span><input class="i" name="name" value="${esc(s.name)}" required></label>
-    <div class="row"><label class="f"><span>Categoria</span><input class="i" name="category" list="cats" value="${esc(s.category)}"><datalist id="cats">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label>
-    <label class="f"><span>Preço carro pequeno (R$)</span><input class="i" name="price" inputmode="decimal" value="${s.price ?? ''}"></label></div>
-    <div class="row"><label class="f"><span>Preço carro grande (vazio = igual)</span><input class="i" name="price_large" inputmode="decimal" value="${s.price_large ?? ''}"></label>
-    <label class="f"><span>Material — cliente paga (R$)</span><input class="i" name="cost" inputmode="decimal" value="${s.cost ?? ''}"></label>
-    <label class="f"><span>Custo carro grande</span><input class="i" name="cost_large" inputmode="decimal" value="${s.cost_large ?? ''}"></label></div>
-    <div class="row"><label class="f"><span>Insumos + operacional — caixa paga (R$)</span><input class="i" name="op_cost" inputmode="decimal" value="${s.op_cost ?? ''}"></label>
-    <label class="f"><span>Operacional carro grande</span><input class="i" name="op_cost_large" inputmode="decimal" value="${s.op_cost_large ?? ''}"></label></div>
-    <p class="tiny muted" style="margin-top:0">Material (tecido, corvin, linha): pago pelo cliente, sai antes da divisão. Insumos + operacional (produtos de lavagem, panos, desgaste, boina, massa): pagos pelo caixa da empresa.</p>
-    <label class="f"><span>Descrição curta</span><input class="i" name="description" value="${esc(s.description)}"></label>
-    <label class="f row" style="align-items:center"><input type="checkbox" name="active" class="auto" style="width:22px;height:22px" ${s.active ? 'checked' : ''}> <span style="margin:0">Ativo (aparece no orçamento)</span></label>
+    <div class="row"><label class="f"><span>Categoria</span><input class="i" name="category" list="cats" value="${esc(s.category)}"><datalist id="cats">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label></div>
+    <label class="f"><span>Descrição curta (aparece para o cliente)</span><input class="i" name="description" value="${esc(s.description)}"></label>
+    <h3 style="margin-top:6px">Veículos atendidos e preços</h3>
+    <p class="tiny muted" style="margin-top:0">Marque os tipos de veículo deste serviço. Preço vazio = "a definir". <b>Material</b> (tecido, corvin, kit do farol): o cliente paga, sai antes da divisão. <b>Insumos</b> (produtos de lavagem, panos, desgaste): o caixa paga.</p>
+    ${S.meta.vehicleTypes.map(([t, l]) => { const p = row(t); return `<div class="card" style="padding:10px;margin-bottom:8px" data-vt="${t}">
+      <label class="row" style="margin-bottom:6px"><input type="checkbox" class="auto" data-k="active" style="width:22px;height:22px" ${p.active ? 'checked' : ''}><b>${esc(l)}</b></label>
+      <div class="row"><label class="f" style="margin:0"><span>Preço</span><input class="i" data-k="price" inputmode="decimal" value="${p.price ?? ''}" placeholder="a definir"></label>
+      <label class="f" style="margin:0"><span>Material</span><input class="i" data-k="cost" inputmode="decimal" value="${p.cost || ''}"></label>
+      <label class="f" style="margin:0"><span>Insumos</span><input class="i" data-k="op_cost" inputmode="decimal" value="${p.op_cost || ''}"></label></div></div>`; }).join('')}
+    <label class="f row" style="align-items:center"><input type="checkbox" name="active" class="auto" style="width:22px;height:22px" ${s.active ? 'checked' : ''}> <span style="margin:0">Serviço ativo</span></label>
     <button class="btn gold block lg">Salvar</button></form>`, (md) => {
     $('#sf', md.el).onsubmit = async (e) => {
       e.preventDefault();
-      const d = formData(e.target); d.active = !!d.active; d.price = num(d.price);
-      ['price_large', 'cost_large', 'op_cost_large'].forEach((k) => { d[k] = d[k] === '' ? null : num(d[k]); }); d.cost = num(d.cost); d.op_cost = num(d.op_cost);
+      const d = formData(e.target); d.active = !!d.active;
+      d.prices = $$('[data-vt]', md.el).map((c) => {
+        const g = (k) => $(`[data-k="${k}"]`, c);
+        return { vehicle_type: c.dataset.vt, active: g('active').checked, price: g('price').value.trim() === '' ? null : num(g('price').value), cost: num(g('cost').value), op_cost: num(g('op_cost').value) };
+      });
+      const first = d.prices.find((p) => p.active && p.price != null);
+      d.price = first ? first.price : 0; // preço de referência (site / leads)
       await run(() => (s.id ? put('/services/' + s.id, d) : post('/services', d)));
       md.close(); toast('Serviço salvo'); await loadMeta(); reload();
     };

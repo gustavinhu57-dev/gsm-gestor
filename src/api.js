@@ -6,7 +6,7 @@ const multer = require('multer');
 const {
   db, DATA_DIR, now, today, addDays, getSettings,
   STAGES, STAGE_IDX, CLIENT_TYPES, STANDBY_REASONS, PHOTO_CATEGORIES, PHOTO_PHASES,
-  COST_CATEGORIES, EXPENSE_CATEGORIES, PAYMENT_METHODS, ROLES,
+  COST_CATEGORIES, EXPENSE_CATEGORIES, PAYMENT_METHODS, ROLES, VEHICLE_TYPES,
 } = require('./db');
 const auth = require('./auth');
 const {
@@ -55,7 +55,8 @@ r.post('/users', auth.requireRole(), wrap((req, res) => {
 r.get('/meta', wrap(() => ({
   origins: db.prepare('SELECT * FROM origins ORDER BY active DESC, sort, name').all(),
   campaigns: db.prepare('SELECT id, name, active FROM campaigns ORDER BY active DESC, id DESC').all(),
-  services: db.prepare('SELECT * FROM services ORDER BY active DESC, category, sort, name').all(),
+  services: servicesWithPrices(),
+  vehicleTypes: VEHICLE_TYPES,
   users: db.prepare('SELECT id, name, role FROM users WHERE active = 1 ORDER BY name').all(),
   settings: getSettings(),
   stages: STAGES, clientTypes: CLIENT_TYPES, standbyReasons: STANDBY_REASONS,
@@ -81,16 +82,33 @@ r.put('/origins/:id', wrap((req) => {
 
 // =================== SERVIÇOS / PREÇOS ===================
 const optNum = (v) => (v === undefined || v === null || String(v).trim() === '' ? null : num(v));
-r.get('/services', wrap(() => db.prepare('SELECT * FROM services ORDER BY active DESC, category, sort, name').all()));
+// Serviços com a tabela de preço por tipo de veículo (prices: [{vehicle_type, price, cost, op_cost, active}])
+function servicesWithPrices() {
+  const list = db.prepare('SELECT * FROM services ORDER BY active DESC, category, sort, name').all();
+  const rows = db.prepare('SELECT * FROM service_prices').all();
+  const order = Object.fromEntries(VEHICLE_TYPES.map(([k], i) => [k, i]));
+  list.forEach((s) => { s.prices = rows.filter((p) => p.service_id === s.id).sort((a, b) => order[a.vehicle_type] - order[b.vehicle_type]); });
+  return list;
+}
+function savePrices(serviceId, prices) {
+  if (!Array.isArray(prices)) return;
+  const valid = new Set(VEHICLE_TYPES.map(([k]) => k));
+  const up = db.prepare(`INSERT INTO service_prices(service_id, vehicle_type, price, cost, op_cost, active) VALUES (?,?,?,?,?,?)
+    ON CONFLICT(service_id, vehicle_type) DO UPDATE SET price = excluded.price, cost = excluded.cost, op_cost = excluded.op_cost, active = excluded.active`);
+  prices.filter((p) => valid.has(p.vehicle_type)).forEach((p) => up.run(serviceId, p.vehicle_type, optNum(p.price), num(p.cost), num(p.op_cost), p.active ? 1 : 0));
+}
+r.get('/services', wrap(() => servicesWithPrices()));
 r.post('/services', wrap((req, res) => {
   const b = req.body;
   if (!str(b.name)) return bad(res, 'Informe o nome do serviço');
   const info = db.prepare('INSERT INTO services(name, category, price, price_large, cost, cost_large, op_cost, op_cost_large, description, active, sort) VALUES (?,?,?,?,?,?,?,?,?,?,99)')
     .run(str(b.name), str(b.category), num(b.price), optNum(b.price_large), num(b.cost), optNum(b.cost_large), num(b.op_cost), optNum(b.op_cost_large), str(b.description), b.active === false ? 0 : 1);
+  savePrices(info.lastInsertRowid, b.prices);
   return { id: info.lastInsertRowid };
 }));
 r.put('/services/:id', wrap((req) => {
   const b = req.body;
+  savePrices(req.params.id, b.prices);
   db.prepare('UPDATE services SET name = ?, category = ?, price = ?, price_large = ?, cost = ?, cost_large = ?, op_cost = ?, op_cost_large = ?, description = ?, active = ? WHERE id = ?')
     .run(str(b.name), str(b.category), num(b.price), optNum(b.price_large), num(b.cost), optNum(b.cost_large), num(b.op_cost), optNum(b.op_cost_large), str(b.description), b.active ? 1 : 0, req.params.id);
   return { ok: true };
@@ -110,8 +128,8 @@ function clientFields(b) {
 }
 function insertVehicle(clientId, v) {
   if (!v || !(v.brand || v.model || v.plate)) return null;
-  return db.prepare('INSERT INTO vehicles(client_id, brand, model, year, color, plate, notes, created_at) VALUES (?,?,?,?,?,?,?,?)')
-    .run(clientId, str(v.brand), str(v.model), str(v.year), str(v.color), normPlate(v.plate) || null, str(v.notes), now()).lastInsertRowid;
+  return db.prepare('INSERT INTO vehicles(client_id, vehicle_type, brand, model, year, color, plate, notes, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(clientId, str(v.vehicle_type), str(v.brand), str(v.model), str(v.year), str(v.color), normPlate(v.plate) || null, str(v.notes), now()).lastInsertRowid;
 }
 
 r.get('/clients', wrap((req) => {
@@ -225,8 +243,8 @@ r.post('/vehicles', wrap((req, res) => {
 }));
 r.put('/vehicles/:id', wrap((req) => {
   const v = req.body;
-  db.prepare('UPDATE vehicles SET brand = ?, model = ?, year = ?, color = ?, plate = ?, notes = ? WHERE id = ?')
-    .run(str(v.brand), str(v.model), str(v.year), str(v.color), normPlate(v.plate) || null, str(v.notes), req.params.id);
+  db.prepare('UPDATE vehicles SET vehicle_type = ?, brand = ?, model = ?, year = ?, color = ?, plate = ?, notes = ? WHERE id = ?')
+    .run(str(v.vehicle_type), str(v.brand), str(v.model), str(v.year), str(v.color), normPlate(v.plate) || null, str(v.notes), req.params.id);
   return { ok: true };
 }));
 r.delete('/vehicles/:id', wrap((req) => { db.prepare('DELETE FROM vehicles WHERE id = ?').run(req.params.id); return { ok: true }; }));
@@ -275,8 +293,8 @@ r.post('/quotes', wrap((req, res) => {
   if (!client) return bad(res, 'Selecione o cliente');
   const s = getSettings();
   const id = db.transaction(() => {
-    const qid = db.prepare(`INSERT INTO quotes(client_id, vehicle_id, vehicle_size, status, source, discount, surcharge, notes, internal_notes, validity_days, public_token, created_by, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(client.id, b.vehicle_id || null, b.vehicle_size === 'G' ? 'G' : 'P', 'criado', b.source || 'manual', num(b.discount), num(b.surcharge),
+    const qid = db.prepare(`INSERT INTO quotes(client_id, vehicle_id, vehicle_type, vehicle_size, status, source, discount, surcharge, notes, internal_notes, validity_days, public_token, created_by, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(client.id, b.vehicle_id || null, str(b.vehicle_type), b.vehicle_type === 'carro_g' ? 'G' : 'P', 'criado', b.source || 'manual', num(b.discount), num(b.surcharge),
       str(b.notes), str(b.internal_notes), Number(b.validity_days) || Number(s.quote_validity_days) || 7,
       crypto.randomBytes(18).toString('base64url'), req.user.name, now(), now()).lastInsertRowid;
     saveItems(qid, b.items);
@@ -292,8 +310,8 @@ r.put('/quotes/:id', wrap((req, res) => {
   const q = db.prepare('SELECT * FROM quotes WHERE id = ?').get(req.params.id);
   if (!q) return bad(res, 'Orçamento não encontrado', 404);
   db.transaction(() => {
-    db.prepare('UPDATE quotes SET vehicle_id = ?, vehicle_size = ?, discount = ?, surcharge = ?, notes = ?, internal_notes = ?, validity_days = ?, updated_at = ? WHERE id = ?')
-      .run(b.vehicle_id || null, b.vehicle_size === 'G' ? 'G' : 'P', num(b.discount), num(b.surcharge), str(b.notes), str(b.internal_notes), Number(b.validity_days) || q.validity_days, now(), q.id);
+    db.prepare('UPDATE quotes SET vehicle_id = ?, vehicle_type = ?, vehicle_size = ?, discount = ?, surcharge = ?, notes = ?, internal_notes = ?, validity_days = ?, updated_at = ? WHERE id = ?')
+      .run(b.vehicle_id || null, str(b.vehicle_type), b.vehicle_type === 'carro_g' ? 'G' : 'P', num(b.discount), num(b.surcharge), str(b.notes), str(b.internal_notes), Number(b.validity_days) || q.validity_days, now(), q.id);
     saveItems(q.id, b.items);
     logEvent(q.client_id, q.id, 'orcamento', `Orçamento #${q.id} editado`, req.user);
   })();
@@ -680,6 +698,88 @@ r.get('/dashboard', wrap((req) => {
       maior_faturamento: [...services].sort((a, b) => b.faturamento - a.faturamento).slice(0, 5),
       maior_margem: [...services].sort((a, b) => b.margem - a.margem).slice(0, 5),
     },
+  };
+}));
+
+// =================== METAS (meta x realizado) ===================
+// Dias úteis = segunda a sábado, sem feriados nacionais e de Manaus/AM (+ Sexta-feira Santa)
+function holidays(year) {
+  const fixed = ['01-01', '04-21', '05-01', '09-05', '09-07', '10-12', '10-24', '11-02', '11-15', '11-20', '12-08', '12-25'].map((d) => `${year}-${d}`);
+  const a = year % 19; const b = Math.floor(year / 100); const c = year % 100; const d = Math.floor(b / 4); const e = b % 4;
+  const f = Math.floor((b + 8) / 25); const g = Math.floor((b - f + 1) / 3); const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4); const k = c % 4; const l = (32 + 2 * e + 2 * i - h - k) % 7; const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31); const day = ((h + l - 7 * m + 114) % 31) + 1;
+  const goodFriday = addDays(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`, -2);
+  return new Set([...fixed, goodFriday]);
+}
+function workDays(from, to) {
+  let n = 0; let d = from; const hol = holidays(Number(from.slice(0, 4)));
+  while (d <= to) { const wd = new Date(d + 'T12:00:00').getDay(); if (wd !== 0 && !hol.has(d)) n++; d = addDays(d, 1); }
+  return n;
+}
+const SOURCE_GROUPS = [
+  ['Lista de contatos', ['Lista Gustavo', 'Lista Barbosa', 'Cliente antigo']],
+  ['TikTok', ['TikTok']],
+  ['Indicação', ['Indicação', 'Parceiro']],
+  ['Fachada / presencial', ['Fachada (passou na frente)', 'Presencial']],
+];
+r.get('/goals', wrap((req) => {
+  const t = today();
+  const from = req.query.from || t.slice(0, 8) + '01';
+  const monthEnd = (() => { const d = new Date(from.slice(0, 7) + '-01T12:00:00'); d.setMonth(d.getMonth() + 1); d.setDate(0); return d.toISOString().slice(0, 10); })();
+  const to = req.query.to || monthEnd;
+  const st = getSettings();
+  const vt = Object.fromEntries(VEHICLE_TYPES);
+  const TAPE = ['Tapeçaria', 'Caminhão', 'Moto', 'Sofá / residencial'];
+
+  const created = db.prepare(`${QUOTE_SELECT} WHERE substr(q.created_at,1,10) BETWEEN ? AND ?`).all(from, to);
+  const executed = db.prepare(`${QUOTE_SELECT} WHERE q.status = 'executado' AND substr(q.executed_at,1,10) BETWEEN ? AND ?`).all(from, to);
+  const fechados = db.prepare(`${QUOTE_SELECT} WHERE q.status = 'aprovado'`).all();
+  const enviados = db.prepare(`${QUOTE_SELECT} WHERE q.status = 'enviado'`).all();
+  const items = db.prepare('SELECT i.*, s.category, s.name svc_name FROM quote_items i LEFT JOIN services s ON s.id = i.service_id WHERE i.quote_id = ?');
+  const sum = (arr, f) => arr.reduce((s, x) => s + f(x), 0);
+
+  // linhas de análise: chave → {orcamentos, orcado, vendas, faturamento, sobra}
+  const blank = () => ({ leads: 0, orcamentos: 0, orcado: 0, vendas: 0, faturamento: 0, sobra: 0 });
+  const byType = {}; const bySvc = {}; const bySrc = {};
+  const srcOf = (q) => (SOURCE_GROUPS.find(([, names]) => names.includes(q.origin_name)) || [q.origin_name ? 'Outros / não atribuído' : 'Outros / não atribuído'])[0];
+  const add = (map, key, field, v) => { (map[key] = map[key] || blank())[field] += v; };
+  const typeOf = (q) => vt[q.vehicle_type] || 'Não informado';
+  const each = (q, fn) => {
+    const its = items.all(q.id); const tot = sum(its, (i) => i.price) || 1;
+    const extra = q.costs_total - sum(its, (i) => i.cost || 0);
+    its.forEach((i) => { const sh = i.price / tot; fn(i, q.total * sh, q.total * sh - (i.cost || 0) - extra * sh); });
+  };
+  for (const q of created) {
+    add(byType, typeOf(q), 'orcamentos', 1); add(byType, typeOf(q), 'orcado', q.total);
+    add(bySrc, srcOf(q), 'orcamentos', 1); add(bySrc, srcOf(q), 'orcado', q.total);
+    each(q, (i, rev) => { add(bySvc, i.svc_name || i.name, 'orcamentos', 1); add(bySvc, i.svc_name || i.name, 'orcado', rev); });
+  }
+  for (const q of executed) {
+    const base = q.total - q.costs_total;
+    [[byType, typeOf(q)], [bySrc, srcOf(q)]].forEach(([m, k]) => { add(m, k, 'vendas', 1); add(m, k, 'faturamento', q.total); add(m, k, 'sobra', base); });
+    each(q, (i, rev, b) => { const k = i.svc_name || i.name; add(bySvc, k, 'vendas', 1); add(bySvc, k, 'faturamento', rev); add(bySvc, k, 'sobra', b); });
+  }
+  // leads por origem (clientes cadastrados no período)
+  db.prepare(`SELECT o.name origin_name FROM clients c LEFT JOIN origins o ON o.id = c.origin_id WHERE substr(c.created_at,1,10) BETWEEN ? AND ?`).all(from, to)
+    .forEach((c) => add(bySrc, srcOf(c), 'leads', 1));
+  const toList = (m) => Object.entries(m).map(([nome, v]) => ({ nome, ...v })).sort((a, b) => b.faturamento - a.faturamento || b.orcado - a.orcado);
+
+  const realizado = sum(executed, (q) => q.total);
+  const decididos = created.filter((q) => ['aprovado', 'executado', 'standby'].includes(q.status));
+  const vendidos = created.filter((q) => ['aprovado', 'executado'].includes(q.status));
+  const ticket = executed.length ? realizado / executed.length : (() => {
+    const all = db.prepare("SELECT AVG(total) a FROM quotes WHERE status = 'executado'").get().a; return all || null;
+  })();
+  return {
+    from, to, hoje: t,
+    metas: { base: num(st.meta_faturamento_mes), desafio: num(st.meta_desafio_mes), taxa_fechamento: num(st.taxa_fechamento_meta) / 100 },
+    dias: { total: workDays(from, to), restantes: t > to ? 0 : workDays(t < from ? from : t, to) },
+    realizado, sobra: sum(executed, (q) => q.total - q.costs_total), vendas: executed.length,
+    fechado_a_executar: sum(fechados, (q) => q.total), fechados: fechados.length,
+    enviados_valor: sum(enviados, (q) => q.total), enviados: enviados.length,
+    orcamentos: created.length, taxa_real: decididos.length ? vendidos.length / decididos.length : null, ticket,
+    porTipo: toList(byType), porServico: toList(bySvc), porOrigem: toList(bySrc),
   };
 }));
 
