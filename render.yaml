@@ -1,0 +1,27 @@
+# Render Blueprint: cria o GSM Gestor (site + CRM) com disco persistente para banco e fotos.
+# No Render: New > Blueprint > escolher este repositório. ADMIN_EMAIL e ADMIN_PASSWORD são pedidos na criação.
+services:
+  - type: web
+    name: gsm-gestor
+    runtime: docker
+    plan: starter
+    region: virginia
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    disk:
+      name: gsm-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        value: Gustavo
+      - key: DATA_DIR
+        value: /data
+      - key: TZ
+        value: America/Sao_Paulo
+      - key: NODE_ENV
+        value: production

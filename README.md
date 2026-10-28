@@ -19,6 +19,12 @@ ADMIN_EMAIL=voce@email.com ADMIN_PASSWORD=suasenha npm start
 ```
 O administrador é criado no primeiro start a partir de `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 
+## Deploy (Render — mais simples)
+1. render.com › entrar com o GitHub.
+2. New › **Blueprint** › escolher `gsm-gestor` (o `render.yaml` cria serviço + disco em `/data`).
+3. Preencher `ADMIN_EMAIL` e `ADMIN_PASSWORD` › Apply. Custo ~US$ 7,25/mês (Starter + 1 GB de disco).
+4. Abrir `https://<nome>.onrender.com/gestor`.
+
 ## Deploy (Railway)
 1. Suba este projeto para um repositório privado no GitHub.
 2. Railway → New Project → Deploy from GitHub repo (detecta o Dockerfile).
