@@ -144,6 +144,31 @@ db.exec(`CREATE TABLE IF NOT EXISTS service_prices (
   id INTEGER PRIMARY KEY, service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE, vehicle_type TEXT NOT NULL,
   price REAL, cost REAL NOT NULL DEFAULT 0, op_cost REAL NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1,
   UNIQUE(service_id, vehicle_type))`);
+// 30/10: linha e cola (sai antes da divisão), insumos estimados podendo ficar "a informar", modo estimativa/ficha
+if (!hasCol('service_prices', 'pre_cost')) db.exec('ALTER TABLE service_prices ADD COLUMN pre_cost REAL NOT NULL DEFAULT 0');
+if (!hasCol('service_prices', 'op_est')) db.exec('ALTER TABLE service_prices ADD COLUMN op_est REAL');
+if (!hasCol('service_prices', 'mat_pending')) db.exec('ALTER TABLE service_prices ADD COLUMN mat_pending INTEGER NOT NULL DEFAULT 0');
+if (!hasCol('service_prices', 'ins_mode')) db.exec("ALTER TABLE service_prices ADD COLUMN ins_mode TEXT NOT NULL DEFAULT 'estimativa'");
+if (!hasCol('quote_items', 'pre_cost')) db.exec('ALTER TABLE quote_items ADD COLUMN pre_cost REAL NOT NULL DEFAULT 0');
+if (!hasCol('quotes', 'executed_ts')) db.exec('ALTER TABLE quotes ADD COLUMN executed_ts TEXT');
+db.exec(`
+CREATE TABLE IF NOT EXISTS products (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, pack TEXT, price REAL, yield_est REAL,
+  kind TEXT NOT NULL DEFAULT 'produto', active INTEGER NOT NULL DEFAULT 1, sort INTEGER DEFAULT 0, created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS bottles (
+  id INTEGER PRIMARY KEY, product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  opened_at TEXT NOT NULL, price REAL, closed_at TEXT, yield_real REAL
+);
+CREATE TABLE IF NOT EXISTS tech_sheet (
+  service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE, vehicle_type TEXT NOT NULL,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE, factor REAL NOT NULL DEFAULT 1,
+  PRIMARY KEY (service_id, vehicle_type, product_id)
+);
+CREATE TABLE IF NOT EXISTS fixed_costs (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, amount REAL NOT NULL DEFAULT 0, sort INTEGER DEFAULT 0
+);
+`);
 if (!hasCol('quotes', 'vehicle_type')) db.exec('ALTER TABLE quotes ADD COLUMN vehicle_type TEXT');
 if (!hasCol('vehicles', 'vehicle_type')) db.exec('ALTER TABLE vehicles ADD COLUMN vehicle_type TEXT');
 if (!hasCol('quotes', 'barbosa_helped')) db.exec('ALTER TABLE quotes ADD COLUMN barbosa_helped INTEGER NOT NULL DEFAULT 0');
@@ -206,6 +231,8 @@ function seed() {
     split_socio1_nome: 'Gustavo', split_socio1: '40',
     split_socio2_nome: 'Barbosa', split_socio2: '40',
     split_caixa: '20', prolabore_meta: '2000',
+    // Regra de 30/10: o caixa tira caixa_preco% do preço final primeiro; split_socio1/2 e split_caixa são % da sobra
+    caixa_preco: '20', margem_seg: '30',
     // Precificação: custos fixos do mês (pagos pelo caixa) e faturamento-meta do mês para ratear esses custos
     custos_fixos_mes: '350', meta_faturamento_mes: '15000', meta_desafio_mes: '50000', taxa_fechamento_meta: '20',
     // Estética (lavagens, higienização, polimento, farol) é feita por Gustavo + Carlinhos: a parte do Carlinhos fica na GSM
@@ -325,6 +352,77 @@ const CATALOG_V3 = {
     // 6) Orçamentos antigos: porte P/G → tipo de veículo
     db.prepare("UPDATE quotes SET vehicle_type = CASE vehicle_size WHEN 'G' THEN 'carro_g' ELSE 'carro_p' END WHERE vehicle_type IS NULL").run();
     db.prepare("INSERT INTO settings(key, value) VALUES ('catalog_version', '6') ON CONFLICT(key) DO UPDATE SET value = '6'").run();
+  })();
+})();
+
+// 30/10 (resumo atualizado): tabela serviço × veículo nova, material + linha e cola da tapeçaria, 2 serviços novos,
+// produtos com frascos (rendimento real) e custos fixos em lista. Nada lançado é apagado: só preços da tabela mudam.
+const GRID_V7 = {
+  // serviço: [categoria, {veículo: [preço|null, material|null(a definir), linha e cola]}]
+  'Ducha': ['Lavagem', { carro_p: [20], carro_g: [20], caminhao: [100], moto: [20], lancha: [100] }],
+  'Lavagem simples': ['Lavagem', { carro_p: [45], carro_g: [90], caminhao: [250], moto: [35], lancha: [100] }],
+  'Lavagem de manutenção': ['Lavagem', { carro_p: [60], carro_g: [120], caminhao: [300], moto: [45], lancha: [150] }],
+  'Lavagem com antirrepelência': ['Lavagem', { carro_p: [70], carro_g: [140], caminhao: [320], moto: [60], lancha: [200] }],
+  'Lavagem do motor': ['Lavagem', { carro_p: [100], carro_g: [100], caminhao: [250], moto: [100], lancha: [150] }],
+  'Lavagem detalhada': ['Lavagem', { carro_p: [120], carro_g: [220], caminhao: [420], moto: [100], lancha: [350] }],
+  'Descontaminação de pintura': ['Lavagem', { carro_p: [140], carro_g: [190], caminhao: [240], moto: [120], lancha: [190] }],
+  'Enceramento técnico': ['Lavagem', { carro_p: [190], carro_g: [290], caminhao: [900], moto: [150], lancha: [290] }],
+  'Polimento comercial': ['Polimento', { carro_p: [500], carro_g: [700], caminhao: [900], moto: [250], lancha: [600] }],
+  'Polimento técnico': ['Polimento', { carro_p: [900], carro_g: [1200], caminhao: [1400], moto: [600], lancha: [900] }],
+  'Mini higienização': ['Higienização', { carro_p: [290], carro_g: [290], caminhao: [290], lancha: [290] }],
+  'Higienização': ['Higienização', { carro_p: [550], carro_g: [550], caminhao: [550] }],
+  'Restauração de farol': ['Polimento', { carro_p: [200, 50], carro_g: [200, 50], caminhao: [300, 50], moto: [100, 50] }],
+  'Restauração de plástico': ['Polimento', { carro_p: [120], carro_g: [120], caminhao: [250], moto: [120] }],
+  'Lavagem de banco individual': ['Higienização', { carro_p: [120], carro_g: [120], caminhao: [120] }],
+  'Capa de banco': ['Tapeçaria', { carro_p: [400, 150, 50], carro_g: [400, 150, 50], caminhao: [700, 300, 50], moto: [350, 100, 50], lancha: [400, 200, 50] }],
+  'Banco acoplado': ['Tapeçaria', { carro_p: [550, 300], carro_g: [550, 300], lancha: [550, null] }],
+  'Volante e suportes': ['Tapeçaria', { carro_p: [270, 100], carro_g: [270, 100], caminhao: [270, null], lancha: [270, null] }],
+  'Painel e colchão': ['Tapeçaria', { caminhao: [600, 300, 50] }],
+  'Carpete e teto': ['Tapeçaria', { carro_p: [800, 400, 50], carro_g: [800, 400, 50], caminhao: [900, null] }],
+  'Sofá retrátil': ['Tapeçaria', { residencial: [null, 250] }],
+  'Restauração de cadeira': ['Tapeçaria', { residencial: [null, null] }],
+};
+const PRODUCTS_V7 = [
+  // nome, embalagem, preço pago, rende (serviços), tipo
+  ['V-Mol', '5 L', 118, 40], ['Sintra', '5 L', 118, 50], ['Delet', '5 L', 140, 50], ['Shiny', '500 ml', 55, 15],
+  ['Darker (Dark)', '1 L', 55, 20], ['Tok Final', '500 ml', 35, 50], ['Hydrox Wash', '500 ml', 40, 15], ['Clay bar', 'un.', 22, 2],
+  ['Massa de polimento', 'pote', 50, 3], ['Boina de polimento', 'un.', 70, 20], ['Restaurador de plásticos', '', 45, 50],
+  ['Pano de microfibra', 'un.', 2.7, 30], ['Lavadora (desgaste)', 'máquina', 500, 800, 'maquina'], ['Politriz (desgaste)', 'máquina', 1000, null, 'maquina'],
+  ['Extratora (desgaste)', 'máquina', null, null, 'maquina'], ['Cera (enceramento)', '', null, null],
+];
+(function applyCatalogV7() {
+  if (db.prepare("SELECT 1 FROM settings WHERE key = 'catalog_version' AND value >= '7'").get()) return;
+  db.transaction(() => {
+    // insumos estimados antigos passam para op_est (só carro tinha estimativa; tapeçaria mantém o desgaste estimado)
+    db.prepare("UPDATE service_prices SET op_est = op_cost WHERE vehicle_type IN ('carro_p', 'carro_g') OR service_id IN (SELECT id FROM services WHERE category = 'Tapeçaria')").run();
+    db.prepare("UPDATE services SET name = 'Banco acoplado' WHERE name = 'Banco acoplado pra carro' AND active = 1").run();
+    const find = db.prepare('SELECT * FROM services WHERE name = ? AND active = 1');
+    const ins = db.prepare('INSERT INTO services(name, category, price, description, sort) VALUES (?,?,?,?,99)');
+    const up = db.prepare(`INSERT INTO service_prices(service_id, vehicle_type, price, cost, pre_cost, mat_pending, op_cost, op_est, active) VALUES (?,?,?,?,?,?,0,?,1)
+      ON CONFLICT(service_id, vehicle_type) DO UPDATE SET price = excluded.price, cost = excluded.cost, pre_cost = excluded.pre_cost,
+        mat_pending = excluded.mat_pending, active = 1, op_est = CASE WHEN excluded.vehicle_type IN ('carro_p','carro_g') THEN service_prices.op_est ELSE excluded.op_est END`);
+    const DESC = { 'Restauração de plástico': 'Plásticos externos e internos sem aspecto ressecado', 'Lavagem de banco individual': 'Limpeza de um banco avulso' };
+    for (const [name, [cat, rows]] of Object.entries(GRID_V7)) {
+      let s = find.get(name);
+      if (!s) { const id = ins.run(name, cat, Object.values(rows)[0][0] || 0, DESC[name] || null).lastInsertRowid; s = { id, category: cat }; }
+      const tape = cat === 'Tapeçaria';
+      for (const [vt] of VEHICLE_TYPES) {
+        const r = rows[vt];
+        if (!r) { db.prepare('UPDATE service_prices SET active = 0 WHERE service_id = ? AND vehicle_type = ?').run(s.id, vt); continue; }
+        const [price, mat = 0, linha = 0] = r;
+        up.run(s.id, vt, price ?? null, mat ?? 0, linha, mat === null ? 1 : 0, tape ? (vt === 'moto' ? 1 : 2) : null);
+      }
+    }
+    const insP = db.prepare('INSERT INTO products(name, pack, price, yield_est, kind, sort, created_at) VALUES (?,?,?,?,?,?,?)');
+    const insB = db.prepare('INSERT INTO bottles(product_id, opened_at, price) VALUES (?,?,?)');
+    if (!db.prepare('SELECT COUNT(*) c FROM products').get().c) {
+      PRODUCTS_V7.forEach(([n, pk, pr, y, kind], i) => { const id = insP.run(n, pk, pr, y, kind || 'produto', i, now()).lastInsertRowid; insB.run(id, now(), pr); });
+    }
+    if (!db.prepare('SELECT COUNT(*) c FROM fixed_costs').get().c) {
+      const insF = db.prepare('INSERT INTO fixed_costs(name, amount, sort) VALUES (?,?,?)');
+      insF.run('Luz', 200, 0); insF.run('Internet', 150, 1);
+    }
+    db.prepare("INSERT INTO settings(key, value) VALUES ('catalog_version', '7') ON CONFLICT(key) DO UPDATE SET value = '7'").run();
   })();
 })();
 

@@ -57,6 +57,7 @@ r.get('/meta', wrap(() => ({
   campaigns: db.prepare('SELECT id, name, active FROM campaigns ORDER BY active DESC, id DESC').all(),
   services: servicesWithPrices(),
   vehicleTypes: VEHICLE_TYPES,
+  fixedCosts: db.prepare('SELECT * FROM fixed_costs ORDER BY sort, id').all(),
   users: db.prepare('SELECT id, name, role FROM users WHERE active = 1 ORDER BY name').all(),
   settings: getSettings(),
   stages: STAGES, clientTypes: CLIENT_TYPES, standbyReasons: STANDBY_REASONS,
@@ -83,20 +84,112 @@ r.put('/origins/:id', wrap((req) => {
 // =================== SERVIÇOS / PREÇOS ===================
 const optNum = (v) => (v === undefined || v === null || String(v).trim() === '' ? null : num(v));
 // Serviços com a tabela de preço por tipo de veículo (prices: [{vehicle_type, price, cost, op_cost, active}])
+// Produtos: custo por serviço = preço pago (frasco em uso) ÷ rendimento (média real dos frascos encerrados, ou a estimativa)
+function productsWithCost() {
+  return db.prepare(`SELECT p.*,
+      b.id bottle_id, b.opened_at, b.price bottle_price,
+      (SELECT AVG(yield_real) FROM bottles WHERE product_id = p.id AND closed_at IS NOT NULL AND yield_real > 0) avg_real,
+      (SELECT COUNT(*) FROM bottles WHERE product_id = p.id AND closed_at IS NOT NULL AND yield_real > 0) n_closed
+    FROM products p LEFT JOIN bottles b ON b.id = (SELECT id FROM bottles WHERE product_id = p.id AND closed_at IS NULL ORDER BY id DESC LIMIT 1)
+    WHERE p.active = 1 ORDER BY p.sort, p.id`).all().map((p) => {
+    const price = p.bottle_price ?? p.price; const yld = p.avg_real || p.yield_est;
+    return { ...p, yield: yld || null, yield_real: !!p.avg_real, unit_cost: price != null && yld ? price / yld : null };
+  });
+}
+// Serviços com a tabela por veículo; cada linha traz a ficha técnica e os insumos calculados (ficha × 1+margem, ou estimativa)
 function servicesWithPrices() {
   const list = db.prepare('SELECT * FROM services ORDER BY active DESC, category, sort, name').all();
   const rows = db.prepare('SELECT * FROM service_prices').all();
+  const sheet = db.prepare('SELECT * FROM tech_sheet').all();
+  const prods = Object.fromEntries(productsWithCost().map((p) => [p.id, p]));
+  const margem = num(getSettings().margem_seg) / 100;
   const order = Object.fromEntries(VEHICLE_TYPES.map(([k], i) => [k, i]));
+  rows.forEach((r) => {
+    r.sheet = Object.fromEntries(sheet.filter((x) => x.service_id === r.service_id && x.vehicle_type === r.vehicle_type).map((x) => [x.product_id, x.factor]));
+    const ids = Object.keys(r.sheet);
+    if (r.ins_mode === 'ficha' && ids.length) {
+      let tot = 0; let pend = false;
+      ids.forEach((id) => { const c = prods[id] && prods[id].unit_cost; if (c == null) pend = true; else tot += c * r.sheet[id]; });
+      Object.assign(r, { ins: tot * (1 + margem), ins_pending: pend, ins_source: 'ficha' });
+    } else Object.assign(r, { ins: r.op_est, ins_pending: r.op_est == null, ins_source: 'estimativa' });
+  });
   list.forEach((s) => { s.prices = rows.filter((p) => p.service_id === s.id).sort((a, b) => order[a.vehicle_type] - order[b.vehicle_type]); });
   return list;
 }
 function savePrices(serviceId, prices) {
   if (!Array.isArray(prices)) return;
   const valid = new Set(VEHICLE_TYPES.map(([k]) => k));
-  const up = db.prepare(`INSERT INTO service_prices(service_id, vehicle_type, price, cost, op_cost, active) VALUES (?,?,?,?,?,?)
-    ON CONFLICT(service_id, vehicle_type) DO UPDATE SET price = excluded.price, cost = excluded.cost, op_cost = excluded.op_cost, active = excluded.active`);
-  prices.filter((p) => valid.has(p.vehicle_type)).forEach((p) => up.run(serviceId, p.vehicle_type, optNum(p.price), num(p.cost), num(p.op_cost), p.active ? 1 : 0));
+  const up = db.prepare(`INSERT INTO service_prices(service_id, vehicle_type, price, cost, mat_pending, pre_cost, op_est, ins_mode, active) VALUES (?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(service_id, vehicle_type) DO UPDATE SET price = excluded.price, cost = excluded.cost, mat_pending = excluded.mat_pending,
+      pre_cost = excluded.pre_cost, op_est = excluded.op_est, ins_mode = excluded.ins_mode, active = excluded.active`);
+  const delSheet = db.prepare('DELETE FROM tech_sheet WHERE service_id = ? AND vehicle_type = ?');
+  const insSheet = db.prepare('INSERT INTO tech_sheet(service_id, vehicle_type, product_id, factor) VALUES (?,?,?,?)');
+  db.transaction(() => {
+    prices.filter((p) => valid.has(p.vehicle_type)).forEach((p) => {
+      const mat = optNum(p.cost);
+      up.run(serviceId, p.vehicle_type, optNum(p.price), mat ?? 0, mat === null && p.active ? 1 : 0, num(p.pre_cost), optNum(p.op_est), p.ins_mode === 'ficha' ? 'ficha' : 'estimativa', p.active ? 1 : 0);
+      if (p.sheet && typeof p.sheet === 'object') {
+        delSheet.run(serviceId, p.vehicle_type);
+        Object.entries(p.sheet).forEach(([pid, f]) => { if (num(f) > 0) insSheet.run(serviceId, p.vehicle_type, Number(pid), num(f)); });
+      }
+    });
+  })();
 }
+
+// =================== PRODUTOS, FRASCOS E CUSTOS FIXOS ===================
+// Quantos serviços executados usaram o produto (pela ficha técnica, somando o fator) desde a abertura do frasco
+const usageSince = (productId, since) => db.prepare(`SELECT COALESCE(SUM(ts.factor),0) n FROM quote_items i
+    JOIN quotes q ON q.id = i.quote_id
+    JOIN tech_sheet ts ON ts.service_id = i.service_id AND ts.vehicle_type = q.vehicle_type AND ts.product_id = ?
+    WHERE q.status = 'executado' AND COALESCE(q.executed_ts, q.executed_at || ' 23:59:59') >= ?`).get(productId, since).n;
+r.get('/products', wrap(() => productsWithCost().map((p) => ({
+  ...p, used: p.opened_at ? usageSince(p.id, p.opened_at) : 0,
+  history: db.prepare('SELECT * FROM bottles WHERE product_id = ? AND closed_at IS NOT NULL ORDER BY id DESC').all(p.id),
+}))));
+r.post('/products', wrap((req, res) => {
+  const b = req.body;
+  if (!str(b.name)) return bad(res, 'Informe o nome do produto');
+  const id = db.prepare('INSERT INTO products(name, pack, price, yield_est, kind, sort, created_at) VALUES (?,?,?,?,?,99,?)')
+    .run(str(b.name), str(b.pack), optNum(b.price), optNum(b.yield_est), b.kind === 'maquina' ? 'maquina' : 'produto', now()).lastInsertRowid;
+  db.prepare('INSERT INTO bottles(product_id, opened_at, price) VALUES (?,?,?)').run(id, now(), optNum(b.price));
+  return { id };
+}));
+r.put('/products/:id', wrap((req) => {
+  const b = req.body;
+  db.prepare('UPDATE products SET name = ?, pack = ?, price = ?, yield_est = ?, kind = ? WHERE id = ?')
+    .run(str(b.name), str(b.pack), optNum(b.price), optNum(b.yield_est), b.kind === 'maquina' ? 'maquina' : 'produto', req.params.id);
+  // o preço pago vale para o frasco em uso
+  db.prepare('UPDATE bottles SET price = ? WHERE product_id = ? AND closed_at IS NULL').run(optNum(b.price), req.params.id);
+  return { ok: true };
+}));
+r.delete('/products/:id', wrap((req) => { db.prepare('UPDATE products SET active = 0 WHERE id = ?').run(req.params.id); return { ok: true }; }));
+// "Frasco acabou": encerra o frasco com o rendimento real e abre o próximo com o preço desta compra
+r.post('/products/:id/finish', wrap((req, res) => {
+  const p = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
+  if (!p) return bad(res, 'Produto não encontrado', 404);
+  const rendeu = num(req.body.yield_real);
+  if (rendeu <= 0) return bad(res, 'Informe quantos serviços o frasco rendeu');
+  const novo = optNum(req.body.new_price);
+  db.transaction(() => {
+    const open = db.prepare('SELECT id FROM bottles WHERE product_id = ? AND closed_at IS NULL ORDER BY id DESC LIMIT 1').get(p.id);
+    if (open) db.prepare('UPDATE bottles SET closed_at = ?, yield_real = ? WHERE id = ?').run(now(), rendeu, open.id);
+    else db.prepare('INSERT INTO bottles(product_id, opened_at, price, closed_at, yield_real) VALUES (?,?,?,?,?)').run(p.id, p.created_at || now(), p.price, now(), rendeu);
+    db.prepare('INSERT INTO bottles(product_id, opened_at, price) VALUES (?,?,?)').run(p.id, now(), novo ?? p.price);
+    if (novo != null) db.prepare('UPDATE products SET price = ? WHERE id = ?').run(novo, p.id);
+  })();
+  return { ok: true };
+}));
+r.put('/fixed-costs', auth.requireRole(), wrap((req) => {
+  const list = (Array.isArray(req.body.items) ? req.body.items : []).filter((x) => str(x.name) && num(x.amount) > 0);
+  db.transaction(() => {
+    db.prepare('DELETE FROM fixed_costs').run();
+    const ins = db.prepare('INSERT INTO fixed_costs(name, amount, sort) VALUES (?,?,?)');
+    list.forEach((x, i) => ins.run(str(x.name), num(x.amount), i));
+    db.prepare("INSERT INTO settings(key, value) VALUES ('custos_fixos_mes', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(String(list.reduce((s, x) => s + num(x.amount), 0)));
+  })();
+  return db.prepare('SELECT * FROM fixed_costs ORDER BY sort, id').all();
+}));
 r.get('/services', wrap(() => servicesWithPrices()));
 r.post('/services', wrap((req, res) => {
   const b = req.body;
@@ -252,8 +345,8 @@ r.delete('/vehicles/:id', wrap((req) => { db.prepare('DELETE FROM vehicles WHERE
 // =================== ORÇAMENTOS ===================
 function saveItems(quoteId, items) {
   db.prepare('DELETE FROM quote_items WHERE quote_id = ?').run(quoteId);
-  const ins = db.prepare('INSERT INTO quote_items(quote_id, service_id, name, price, cost, op_cost, sort) VALUES (?,?,?,?,?,?,?)');
-  (items || []).forEach((it, i) => { if (str(it.name)) ins.run(quoteId, it.service_id || null, str(it.name), num(it.price), num(it.cost), num(it.op_cost), i); });
+  const ins = db.prepare('INSERT INTO quote_items(quote_id, service_id, name, price, cost, pre_cost, op_cost, sort) VALUES (?,?,?,?,?,?,?,?)');
+  (items || []).forEach((it, i) => { if (str(it.name)) ins.run(quoteId, it.service_id || null, str(it.name), num(it.price), num(it.cost), num(it.pre_cost), num(it.op_cost), i); });
   recalcQuote(quoteId);
 }
 function getQuote(id) {
@@ -367,6 +460,7 @@ r.post('/quotes/:id/status', wrap((req, res) => {
       advanceStage(q.client_id, b.scheduled_for ? 'agendado' : 'fechado');
       logEvent(q.client_id, q.id, 'servico', `Orçamento #${q.id} fechado${b.scheduled_for ? ' — agendado para ' + b.scheduled_for.split('-').reverse().join('/') : ''}`, req.user);
     } else if (st === 'executado') {
+      db.prepare('UPDATE quotes SET executed_ts = COALESCE(executed_ts, ?) WHERE id = ?').run(now(), q.id);
       db.prepare("UPDATE quotes SET status = 'executado', approved_at = COALESCE(approved_at, ?), executed_at = ?, responsible = COALESCE(?, responsible), standby_reason = NULL, standby_at = NULL, updated_at = ? WHERE id = ?")
         .run(now(), str(b.executed_at) || today(), str(b.responsible), now(), q.id);
       closeFollowups('Serviço executado');
@@ -375,8 +469,10 @@ r.post('/quotes/:id/status', wrap((req, res) => {
       // Lança automaticamente o custo de material da tabela (editável), se ainda não houver custos
       if (!db.prepare('SELECT 1 FROM costs WHERE quote_id = ?').get(q.id)) {
         const insC = db.prepare('INSERT INTO costs(quote_id, category, description, amount, created_at) VALUES (?,?,?,?,?)');
-        db.prepare('SELECT name, cost FROM quote_items WHERE quote_id = ? AND cost > 0').all(q.id)
-          .forEach((it) => insC.run(q.id, 'Material', `${it.name} (tabela)`, it.cost, now()));
+        db.prepare('SELECT name, cost, pre_cost FROM quote_items WHERE quote_id = ? AND (cost > 0 OR pre_cost > 0)').all(q.id).forEach((it) => {
+          if (it.cost > 0) insC.run(q.id, 'Material', `${it.name} (tabela)`, it.cost, now());
+          if (it.pre_cost > 0) insC.run(q.id, 'Linha e cola', `${it.name} (tabela)`, it.pre_cost, now());
+        });
       }
       checkPaid(q.id);
     } else if (st === 'standby') {
@@ -597,18 +693,19 @@ function financeData(from, to) {
   const custos = executed.reduce((s, q) => s + q.costs_total, 0);
   // Base da divisão por equipe: tapeçaria (Gustavo + Barbosa) e estética (Gustavo + Carlinhos), proporcional ao valor dos itens
   const TAPECARIA = ['Tapeçaria', 'Caminhão', 'Moto', 'Sofá / residencial'];
-  const itemsQ = db.prepare('SELECT i.price, i.cost, s.category FROM quote_items i LEFT JOIN services s ON s.id = i.service_id WHERE i.quote_id = ?');
-  const split = { tapecaria: 0, estetica: 0, estetica_barbosa: 0 };
+  const itemsQ = db.prepare('SELECT i.price, i.cost, i.pre_cost, s.category FROM quote_items i LEFT JOIN services s ON s.id = i.service_id WHERE i.quote_id = ?');
+  const cp = num(getSettings().caixa_preco) / 100;
+  const split = { tapecaria: 0, estetica: 0, estetica_barbosa: 0, caixa_preco: faturamento * cp };
   for (const q of executed) {
     const its = itemsQ.all(q.id);
-    if (!its.length) { split[q.barbosa_helped ? 'estetica_barbosa' : 'estetica'] += q.total - q.costs_total; continue; }
+    if (!its.length) { split[q.barbosa_helped ? 'estetica_barbosa' : 'estetica'] += q.total * (1 - cp) - q.costs_total; continue; }
     const sum = its.reduce((s, i) => s + i.price, 0);
-    const itemMat = its.reduce((s, i) => s + (i.cost || 0), 0);
+    const itemMat = its.reduce((s, i) => s + (i.cost || 0) + (i.pre_cost || 0), 0);
     const extra = q.costs_total - itemMat; // taxa de cartão, material extra lançado à mão
     its.forEach((i) => {
       const share = sum ? i.price / sum : 1 / its.length;
       const grp = TAPECARIA.includes(i.category) ? 'tapecaria' : q.barbosa_helped ? 'estetica_barbosa' : 'estetica';
-      split[grp] += q.total * share - (i.cost || 0) - extra * share;
+      split[grp] += q.total * share * (1 - cp) - (i.cost || 0) - (i.pre_cost || 0) - extra * share;
     });
   }
   // Custo operacional estimado (panos, desgaste, boina) dos serviços executados: sai do caixa da empresa
@@ -745,10 +842,11 @@ r.get('/goals', wrap((req) => {
   const srcOf = (q) => (SOURCE_GROUPS.find(([, names]) => names.includes(q.origin_name)) || [q.origin_name ? 'Outros / não atribuído' : 'Outros / não atribuído'])[0];
   const add = (map, key, field, v) => { (map[key] = map[key] || blank())[field] += v; };
   const typeOf = (q) => vt[q.vehicle_type] || 'Não informado';
+  const cp = num(st.caixa_preco) / 100; // sobra = preço − caixa − material − linha e cola − taxas
   const each = (q, fn) => {
     const its = items.all(q.id); const tot = sum(its, (i) => i.price) || 1;
-    const extra = q.costs_total - sum(its, (i) => i.cost || 0);
-    its.forEach((i) => { const sh = i.price / tot; fn(i, q.total * sh, q.total * sh - (i.cost || 0) - extra * sh); });
+    const extra = q.costs_total - sum(its, (i) => (i.cost || 0) + (i.pre_cost || 0));
+    its.forEach((i) => { const sh = i.price / tot; fn(i, q.total * sh, q.total * sh * (1 - cp) - (i.cost || 0) - (i.pre_cost || 0) - extra * sh); });
   };
   for (const q of created) {
     add(byType, typeOf(q), 'orcamentos', 1); add(byType, typeOf(q), 'orcado', q.total);
@@ -756,7 +854,7 @@ r.get('/goals', wrap((req) => {
     each(q, (i, rev) => { add(bySvc, i.svc_name || i.name, 'orcamentos', 1); add(bySvc, i.svc_name || i.name, 'orcado', rev); });
   }
   for (const q of executed) {
-    const base = q.total - q.costs_total;
+    const base = q.total * (1 - cp) - q.costs_total;
     [[byType, typeOf(q)], [bySrc, srcOf(q)]].forEach(([m, k]) => { add(m, k, 'vendas', 1); add(m, k, 'faturamento', q.total); add(m, k, 'sobra', base); });
     each(q, (i, rev, b) => { const k = i.svc_name || i.name; add(bySvc, k, 'vendas', 1); add(bySvc, k, 'faturamento', rev); add(bySvc, k, 'sobra', b); });
   }
@@ -775,7 +873,7 @@ r.get('/goals', wrap((req) => {
     from, to, hoje: t,
     metas: { base: num(st.meta_faturamento_mes), desafio: num(st.meta_desafio_mes), taxa_fechamento: num(st.taxa_fechamento_meta) / 100 },
     dias: { total: workDays(from, to), restantes: t > to ? 0 : workDays(t < from ? from : t, to) },
-    realizado, sobra: sum(executed, (q) => q.total - q.costs_total), vendas: executed.length,
+    realizado, sobra: sum(executed, (q) => q.total * (1 - cp) - q.costs_total), vendas: executed.length,
     fechado_a_executar: sum(fechados, (q) => q.total), fechados: fechados.length,
     enviados_valor: sum(enviados, (q) => q.total), enviados: enviados.length,
     orcamentos: created.length, taxa_real: decididos.length ? vendidos.length / decididos.length : null, ticket,

@@ -107,7 +107,13 @@ input.i:focus, select.i:focus, textarea.i:focus { border-color: var(--ink); box-
 .tag.criado { background: #eef2ff; color: #3730a3; } .tag.enviado { background: #fef3c7; color: #92400e; }
 .tag.aprovado { background: #e0f2fe; color: #075985; } .tag.executado { background: #dcfce7; color: #166534; }
 .tag.standby { background: #f3e8ff; color: #6b21a8; } .tag.site { background: #111; color: var(--gold); }
-.tag.red { background: #fee2e2; color: #991b1b; } .tag.gold { background: #faf3d7; color: #7a5d00; }
+.tag.red { background: #fee2e2; color: #991b1b; }
+.tag.ok { background: #dcfce7; color: #166534; } .tag.amber { background: #fef3c7; color: #92400e; } .tag.blue { background: #e0e7ff; color: #3730a3; }
+.ficha { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; margin-top: 8px; }
+@media (min-width: 700px) { .ficha { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.ficha label { display: flex; align-items: center; gap: 6px; font-size: 13px; min-width: 0; }
+.ficha label span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ficha input { width: 64px; min-height: 36px; border: 1px solid #d9d6ce; border-radius: 8px; padding: 4px 6px; text-align: right; font-size: 15px; } .tag.gold { background: #faf3d7; color: #7a5d00; }
 
 .list .item { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-bottom: 1px solid var(--line); text-decoration: none; color: inherit; cursor: pointer; }
 .list .item:last-child { border-bottom: 0; }

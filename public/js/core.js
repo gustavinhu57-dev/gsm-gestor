@@ -18,24 +18,41 @@ function relDay(d) {
   if (diff === 0) return 'hoje'; if (diff === -1) return 'ontem'; if (diff === 1) return 'amanhã';
   return diff < 0 ? `há ${-diff} dias` : `em ${diff} dias`;
 }
-// Preço mínimo no modelo GSM: o caixa (split_caixa% da base = preço − material) precisa pagar os insumos/operacional
-// do serviço + a parte dos custos fixos (custos_fixos_mes ÷ meta_faturamento_mes, proporcional ao preço).
+// Regra de divisão (30/10): o caixa tira caixa_preco% do preço final primeiro; depois saem material, linha e cola e taxa;
+// a sobra divide Gustavo (split_socio1%) / 2ª parte (split_socio2%) / caixa (split_caixa%). Custos fixos: total ÷ meta do mês.
 function pricing() {
   const st = S.meta.settings;
-  const caixa = (Number(st.split_caixa) || 20) / 100;
-  const fixo = (Number(st.custos_fixos_mes) || 0) / (Number(st.meta_faturamento_mes) || 1);
-  return { caixa, fixo, folga: caixa - fixo };
+  const fixos = (S.meta.fixedCosts || []).reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  const meta = num(st.meta_faturamento_mes) || 1;
+  return {
+    cp: num(st.caixa_preco ?? 20) / 100, rr: num(st.split_caixa ?? 20) / 100,
+    pG: num(st.split_socio1 ?? 40) / 100, pP: num(st.split_socio2 ?? 40) / 100, fixos, meta, f: fixos / meta,
+  };
 }
-// Linha de preço de um serviço para um tipo de veículo (null se o serviço não atende esse tipo)
+// Linha de preço de um serviço para um tipo de veículo (null se a GSM não faz esse serviço nesse veículo)
 const priceRow = (s, type) => (s.prices || []).find((p) => p.vehicle_type === type && p.active) || null;
 const vtLabel = (k) => (S.meta.vehicleTypes.find((t) => t[0] === k) || [k, 'Não informado'])[1];
+const matRow = (row) => (row && !row.mat_pending ? Number(row.cost) || 0 : 0) + (Number(row && row.pre_cost) || 0);
+// Preço mínimo: o caixa líquido não fica negativo e a sobra também não
 function minPriceRow(row) {
   if (!row) return 0;
-  const { caixa, folga } = pricing();
-  if (folga <= 0) return Infinity;
-  return Math.ceil(((row.op_cost || 0) + caixa * (row.cost || 0)) / folga) || 0;
+  const { cp, rr, f } = pricing(); const ma = matRow(row); const I = Number(row.ins) || 0;
+  const den = cp + rr * (1 - cp) - f;
+  return Math.ceil(Math.max(den > 0 ? (I + rr * ma) / den : Infinity, ma / (1 - cp))) || 0;
 }
 const minPrice = (s, type) => minPriceRow(priceRow(s, type));
+function situacaoRow(row) {
+  if (row.price == null) return ['a definir', 'amber'];
+  if (row.ins_pending || row.mat_pending) return ['falta custo', 'blue'];
+  return row.price < minPriceRow(row) ? ['abaixo do mínimo', 'red'] : ['OK', 'ok'];
+}
+// Quebra do preço pela regra de divisão (Pix, sem taxa); fixo = rateio dos custos fixos
+function breakdown(price, mat, ins, fixo) {
+  const { cp, rr, pG, pP } = pricing();
+  const caixa1 = price * cp; const sobra = price - caixa1 - mat;
+  const caixaTotal = caixa1 + sobra * rr; const caixaLiq = caixaTotal - ins - fixo;
+  return { caixa1, sobra, gustavo: sobra * pG, parte2: sobra * pP, caixaSobra: sobra * rr, caixaTotal, caixaLiq };
+}
 const firstName = (n) => String(n || '').split(' ')[0];
 const stageLabel = (k) => (S.meta.stages.find((s) => s[0] === k) || [k, k])[1];
 const STATUS = { criado: 'Criado', enviado: 'Enviado', aprovado: 'Fechado', executado: 'Executado', standby: 'Stand-by' };
@@ -137,7 +154,7 @@ document.addEventListener('click', (e) => {
 // ---------- Layout ----------
 const MENU = [
   ['#/', 'Dashboard', 'home'], ['#/metas', 'Metas', 'flag'], ['#/clientes', 'Clientes', 'users'], ['#/crm', 'CRM', 'kanban'],
-  ['#/orcamentos', 'Orçamentos', 'file'], ['#/followups', 'Follow-ups', 'clock'], ['#/servicos', 'Serviços', 'tag'],
+  ['#/orcamentos', 'Orçamentos', 'file'], ['#/followups', 'Follow-ups', 'clock'], ['#/servicos', 'Serviços', 'tag'], ['#/produtos', 'Produtos', 'wrench'],
   ['#/financeiro', 'Financeiro', 'money'], ['#/campanhas', 'Campanhas', 'flag'], ['#/fotos', 'Fotos', 'image'], ['#/config', 'Configurações', 'gear'],
 ];
 function menuHtml() {

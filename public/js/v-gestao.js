@@ -87,20 +87,26 @@ route(/^#\/financeiro$/, async (v, _, query) => {
         <p class="tiny muted">Margem de contribuição não é lucro líquido: não considera impostos, pró-labore nem despesas fora do sistema.</p>
       </div>
       ${(() => {
-        const st = S.meta.settings; const base = Math.max(0, T.margem);
-        const tb = Math.max(0, T.split?.tapecaria || 0); const eb = Math.max(0, T.split?.estetica || 0); const ebb = Math.max(0, T.split?.estetica_barbosa || 0);
-        const p1 = Number(st.split_socio1) || 0; const p2 = Number(st.split_socio2) || 0; const pc = Number(st.split_caixa) || 0;
-        const meta = Number(st.prolabore_meta) || 0; const caixaLiq = base * pc / 100 - (T.custo_operacional || 0) - T.despesas;
+        const st = S.meta.settings; const P = pricing(); const sp = T.split || {};
+        const tb = sp.tapecaria || 0; const eb = sp.estetica || 0; const ebb = sp.estetica_barbosa || 0; const sobra = tb + eb + ebb;
+        const meta = Number(st.prolabore_meta) || 0;
+        const caixaTotal = (sp.caixa_preco || 0) + sobra * P.rr; const caixaLiq = caixaTotal - (T.custo_operacional || 0) - T.despesas;
         const share = (nome, v, withMeta) => line(esc(nome), `${brl(v)}${withMeta && meta ? ` <span class="tiny ${v >= meta ? 'green' : 'red'}">meta ${brl0(meta)}</span>` : ''}`);
-        return `<div class="card"><h2>Divisão da margem ${p1}/${p2}/${pc}</h2>
-          <p class="tiny muted" style="margin-top:0">Base = faturamento − material (e taxa de cartão). Tapeçaria: ${brl0(tb)} · Estética: ${brl0(eb + ebb)}${ebb ? ` (${brl0(ebb)} com ajuda do ${esc(st.split_socio2_nome)})` : ''}.</p>
-          ${share(`${st.split_socio1_nome} (${p1}% de tudo)`, base * p1 / 100, true)}
-          ${share(`${st.split_socio2_nome} (${p2}% da tapeçaria${ebb ? ' + estética em que ajudou' : ''})`, (tb + ebb) * p2 / 100, true)}
-          ${share(`${st.split_estetica_nome || 'Parceiro da estética'} (${p2}% da estética)`, eb * p2 / 100, false)}
-          ${line(`Caixa da empresa (${pc}%)`, brl(base * pc / 100))}
-          ${line('(−) Custo operacional dos serviços (panos, desgaste)', brl(T.custo_operacional || 0), 'red')}
-          ${line('(−) Despesas fixas lançadas (luz, internet…)', brl(T.despesas), 'red')}
-          ${line('= Caixa líquido', brl(caixaLiq), caixaLiq < 0 ? 'red' : 'green', true)}</div>`;
+        return `<div class="card"><h2>Divisão do dinheiro</h2>
+          ${line('Faturamento', brl(T.faturamento), '', true)}
+          ${line(`(−) Caixa: ${pct(P.cp)} do preço`, brl(sp.caixa_preco || 0))}
+          ${line('(−) Material, linha e cola, taxas de cartão', brl(T.custos), 'red')}
+          ${line('= Sobra para dividir', brl(sobra), '', true)}
+          <p class="tiny muted" style="margin:4px 0">Tapeçaria ${brl0(tb)} · Estética ${brl0(eb + ebb)}${ebb ? ` (${brl0(ebb)} com ajuda do ${esc(st.split_socio2_nome)})` : ''}</p>
+          ${share(`${st.split_socio1_nome} (${pct(P.pG)} da sobra)`, sobra * P.pG, true)}
+          ${share(`${st.split_socio2_nome} (${pct(P.pP)} da tapeçaria${ebb ? ' e da estética em que ajudou' : ''})`, (tb + ebb) * P.pP, true)}
+          ${share(`${st.split_estetica_nome || 'Parte da estética'} (${pct(P.pP)} da estética)`, eb * P.pP, false)}
+          ${line(`Caixa (${pct(P.rr)} da sobra)`, brl(sobra * P.rr))}
+          ${line('= Caixa total', brl(caixaTotal), '', true)}
+          ${line('(−) Insumos dos serviços (produtos, panos, desgaste)', brl(T.custo_operacional || 0), 'red')}
+          ${line('(−) Despesas lançadas (luz, internet…)', brl(T.despesas), 'red')}
+          ${line('= Caixa líquido', brl(caixaLiq), caixaLiq < 0 ? 'red' : 'green', true)}
+          ${line('Fica na empresa (caixa líquido + parte da estética)', brl(caixaLiq + eb * P.pP), '', true)}</div>`;
       })()}
       <div class="card"><h2>Custos diretos por categoria</h2>
         ${f.costsByCat.map((c) => line(esc(c.category), brl(c.total))).join('') || '<div class="small muted">Nenhum custo lançado nos serviços do período</div>'}
@@ -187,15 +193,23 @@ route(/^#\/config$/, async (v) => {
       <label class="f"><span>Endereço</span><input class="i" name="company_address" value="${esc(s.company_address)}"></label>
       <div class="row"><label class="f"><span>Validade padrão (dias)</span><input class="i" name="quote_validity_days" inputmode="numeric" value="${esc(s.quote_validity_days)}"></label>
       <label class="f"><span>Follow-up após envio (dias)</span><input class="i" name="followup_after_send_days" inputmode="numeric" value="${esc(s.followup_after_send_days)}"></label></div>
-      <div class="row"><label class="f"><span>Sócio 1</span><input class="i" name="split_socio1_nome" value="${esc(s.split_socio1_nome)}"></label><label class="f"><span>% sócio 1</span><input class="i" name="split_socio1" inputmode="numeric" value="${esc(s.split_socio1)}"></label></div>
-      <div class="row"><label class="f"><span>Sócio 2</span><input class="i" name="split_socio2_nome" value="${esc(s.split_socio2_nome)}"></label><label class="f"><span>% sócio 2</span><input class="i" name="split_socio2" inputmode="numeric" value="${esc(s.split_socio2)}"></label></div>
+      <h3 style="margin-top:8px">Divisão do dinheiro</h3>
+      <label class="f"><span>Caixa: % do preço final (sai primeiro)</span><input class="i" name="caixa_preco" inputmode="numeric" value="${esc(s.caixa_preco)}"></label>
+      <div class="row"><label class="f"><span>Sócio 1</span><input class="i" name="split_socio1_nome" value="${esc(s.split_socio1_nome)}"></label><label class="f"><span>% da sobra</span><input class="i" name="split_socio1" inputmode="numeric" value="${esc(s.split_socio1)}"></label></div>
+      <div class="row"><label class="f"><span>2ª parte (tapeçaria)</span><input class="i" name="split_socio2_nome" value="${esc(s.split_socio2_nome)}"></label><label class="f"><span>% da sobra</span><input class="i" name="split_socio2" inputmode="numeric" value="${esc(s.split_socio2)}"></label></div>
       <div class="row"><label class="f"><span>Meta desafio do mês (R$)</span><input class="i" name="meta_desafio_mes" inputmode="numeric" value="${esc(s.meta_desafio_mes)}"></label><label class="f"><span>Taxa de fechamento esperada (%)</span><input class="i" name="taxa_fechamento_meta" inputmode="numeric" value="${esc(s.taxa_fechamento_meta)}"></label></div>
-      <div class="row"><label class="f"><span>Custos fixos do mês (luz, internet, comunicação visual…)</span><input class="i" name="custos_fixos_mes" inputmode="numeric" value="${esc(s.custos_fixos_mes)}"></label><label class="f"><span>Meta de faturamento do mês</span><input class="i" name="meta_faturamento_mes" inputmode="numeric" value="${esc(s.meta_faturamento_mes)}"></label></div>
+      <div class="row"><label class="f"><span>Meta de faturamento do mês</span><input class="i" name="meta_faturamento_mes" inputmode="numeric" value="${esc(s.meta_faturamento_mes)}"></label><label class="f"><span>Margem de segurança nos insumos da ficha (%)</span><input class="i" name="margem_seg" inputmode="numeric" value="${esc(s.margem_seg)}"></label></div>
       <label class="f"><span>Na estética (sem o ${esc(s.split_socio2_nome)}), os ${esc(s.split_socio2)}% vão para</span><input class="i" name="split_estetica_nome" value="${esc(s.split_estetica_nome)}"></label>
       <div class="row"><label class="f"><span>Taxa maquininha débito (%)</span><input class="i" name="taxa_debito" inputmode="decimal" value="${esc(s.taxa_debito)}" placeholder="ex.: 1,99"></label><label class="f"><span>Taxa maquininha crédito (%)</span><input class="i" name="taxa_credito" inputmode="decimal" value="${esc(s.taxa_credito)}" placeholder="ex.: 4,99"></label></div>
-      <div class="row"><label class="f"><span>% caixa da empresa</span><input class="i" name="split_caixa" inputmode="numeric" value="${esc(s.split_caixa)}"></label><label class="f"><span>Meta de pró-labore (R$/mês)</span><input class="i" name="prolabore_meta" inputmode="numeric" value="${esc(s.prolabore_meta)}"></label></div>
+      <div class="row"><label class="f"><span>Caixa: % da sobra</span><input class="i" name="split_caixa" inputmode="numeric" value="${esc(s.split_caixa)}"></label><label class="f"><span>Meta de pró-labore (R$/mês)</span><input class="i" name="prolabore_meta" inputmode="numeric" value="${esc(s.prolabore_meta)}"></label></div>
       <label class="f"><span>Mensagem do WhatsApp — variáveis: {nome} {veiculo} {itens} {total} {link} {validade}</span><textarea class="i" name="quote_message" rows="7">${esc(s.quote_message)}</textarea></label>
       <button class="btn gold" ${admin ? '' : 'disabled'}>Salvar</button></form></div>
+
+    <div class="card"><h2>Custos fixos do mês</h2>
+      <p class="small muted" style="margin-top:0">Pagos pelo caixa e rateados no preço: total ÷ meta do mês. Valor vazio remove a linha.</p>
+      <form id="fxF"><div id="fxRows">${(m.fixedCosts || []).map((x) => `<div class="row" data-fx><input class="i" data-k="name" value="${esc(x.name)}"><input class="i auto" data-k="amount" inputmode="decimal" style="max-width:130px" value="${esc(String(x.amount).replace('.', ','))}"></div>`).join('')}</div>
+      <div class="actions" style="margin-top:8px"><button type="button" class="btn sm" id="fxAdd">+ Custo fixo</button><button class="btn sm gold" ${admin ? '' : 'disabled'}>Salvar custos fixos</button></div>
+      <p class="tiny muted">Total: ${brl0((m.fixedCosts || []).reduce((a, x) => a + x.amount, 0))}/mês = ${((m.fixedCosts || []).reduce((a, x) => a + x.amount, 0) / (num(s.meta_faturamento_mes) || 1) * 100).toFixed(1).replace('.', ',')}% de cada preço.</p></form></div>
 
     <div class="card"><h2>Origens de lead</h2>
       <div class="opt-list" style="margin-bottom:10px">${m.origins.map((o) => `<button class="opt ${o.active ? 'active' : ''}" data-or="${o.id}" data-act="${o.active}" title="Toque para ativar/desativar">${esc(o.name)}</button>`).join('')}</div>
@@ -225,7 +239,17 @@ route(/^#\/config$/, async (v) => {
   "utm_content": "...", "ad_id": "...", "adset_id": "...", "campaign_id": "..." }</code>
       <p class="tiny muted">O lead cai em Clientes + Orçamentos › Criados (marcado como SITE) e gera alerta no Jarvis.</p></div>`;
 
-  $('#stF').onsubmit = async (e) => { e.preventDefault(); await run(() => put('/settings', formData(e.target))); await loadMeta(); toast('Configurações salvas'); };
+  $('#stF').onsubmit = async (e) => {
+    e.preventDefault(); const d = formData(e.target);
+    if (Math.round(num(d.split_socio1) + num(d.split_socio2) + num(d.split_caixa)) !== 100) { toast('A divisão da sobra precisa somar 100%', true); return; }
+    await run(() => put('/settings', d)); await loadMeta(); toast('Configurações salvas');
+  };
+  $('#fxAdd').onclick = () => $('#fxRows').insertAdjacentHTML('beforeend', '<div class="row" data-fx style="margin-top:6px"><input class="i" data-k="name" placeholder="Ex.: Comunicação visual"><input class="i auto" data-k="amount" inputmode="decimal" style="max-width:130px" placeholder="R$"></div>');
+  $('#fxF').onsubmit = async (e) => {
+    e.preventDefault();
+    const items = $$('[data-fx]').map((r) => ({ name: $('[data-k="name"]', r).value.trim(), amount: num($('[data-k="amount"]', r).value) }));
+    await run(() => put('/fixed-costs', { items })); await loadMeta(); toast('Custos fixos salvos'); reload();
+  };
   $$('[data-or]', v).forEach((b) => { b.onclick = async () => { await run(() => put('/origins/' + b.dataset.or, { active: b.dataset.act !== '1' })); reload(); }; });
   $('#orF').onsubmit = async (e) => { e.preventDefault(); await run(() => post('/origins', formData(e.target))); toast('Origem criada'); reload(); };
   const us = $('#usF'); if (us) us.onsubmit = async (e) => { e.preventDefault(); await run(() => post('/users', formData(e.target))); toast('Usuário criado'); reload(); };
@@ -275,4 +299,41 @@ route(/^#\/metas$/, async (v, _, query) => {
     <div class="card"><h2>Por origem do cliente</h2>${table(g.porOrigem, 'Origem', true, true)}
       <p class="tiny muted" style="margin-bottom:0">Meta inicial de 20% para cada origem (estimativa). Os números reais vão substituindo a estimativa.</p></div>`;
   $('#mMes').onchange = (e) => { location.hash = '#/metas?mes=' + e.target.value; };
+});
+
+
+// ---------- PRODUTOS: custo por serviço = preço pago ÷ rendimento do frasco; "frasco acabou" ----------
+route(/^#\/produtos$/, async (v, _, query) => {
+  const list = await api('/products');
+  const fv = (x) => (x == null ? '' : String(x).replace('.', ','));
+  v.innerHTML = `<div class="page-head"><h1>Produtos e máquinas</h1><button class="btn gold" id="npr">${icon('plus')} Produto</button></div>
+    <p class="small muted" style="margin-top:-6px">Custo por serviço = preço pago ÷ quantos serviços o frasco rendeu. Quando o frasco acabar, toque em <b>Frasco acabou</b>: o rendimento real substitui a estimativa e os mínimos de todos os serviços que usam o produto são recalculados.</p>
+    ${list.map((p) => `<div class="card" data-p="${p.id}">
+      <div class="row" style="align-items:flex-start"><div><b>${esc(p.name)}</b> <span class="small muted">${esc(p.pack || '')}</span>
+        <div class="small">${p.unit_cost == null ? '<span class="tag blue">falta informação</span>' : `<b>${brl(p.unit_cost)}</b> por serviço`} · rende ${p.yield ? Math.round(p.yield * 10) / 10 + ' serviços' : '?'} <span class="muted">(${p.yield_real ? `média real de ${p.n_closed} frasco(s)` : 'estimado'})</span></div>
+        <div class="small muted">${p.opened_at ? `Em uso desde ${fdate(p.opened_at)} por ${p.bottle_price != null ? brl(p.bottle_price) : 'preço ?'} · ${Math.round(p.used * 10) / 10} serviço(s) executado(s) com ele` : 'Nenhum frasco em uso'}</div></div></div>
+      <div class="actions" style="margin-top:8px">${p.kind === 'maquina' ? '' : '<button class="btn sm primary" data-a="fim">Frasco acabou</button>'}<button class="btn sm" data-a="edit">${icon('edit')} Editar</button></div>
+      ${p.history.length ? `<details style="margin-top:8px"><summary class="small">Histórico (${p.history.length} frasco(s))</summary><div class="scroll-x"><table class="t small"><tr><th>Aberto</th><th>Acabou</th><th class="n">Preço</th><th class="n">Rendeu</th><th class="n">Por serviço</th></tr>
+        ${p.history.map((b) => `<tr><td>${fdate(b.opened_at)}</td><td>${fdate(b.closed_at)}</td><td class="n">${b.price != null ? brl(b.price) : '—'}</td><td class="n">${b.yield_real}</td><td class="n">${b.price != null && b.yield_real ? brl(b.price / b.yield_real) : '—'}</td></tr>`).join('')}</table></div></details>` : ''}
+    </div>`).join('') || '<div class="card empty">Nenhum produto cadastrado</div>'}`;
+  const form = (p = { kind: 'produto' }) => modal(p.id ? 'Editar ' + esc(p.name) : 'Novo produto', `<form id="pf">
+    <div class="row"><label class="f"><span>Nome *</span><input class="i" name="name" value="${esc(p.name)}" required></label><label class="f"><span>Embalagem</span><input class="i" name="pack" value="${esc(p.pack)}" placeholder="5 L, 500 ml, un."></label></div>
+    <div class="row"><label class="f"><span>Preço pago (R$)</span><input class="i" name="price" inputmode="decimal" value="${fv(p.bottle_price ?? p.price)}"></label><label class="f"><span>Rende (serviços)</span><input class="i" name="yield_est" inputmode="decimal" value="${fv(p.yield_est)}"></label></div>
+    <label class="f"><span>Tipo</span><select class="i" name="kind">${opts([['produto', 'Produto'], ['maquina', 'Máquina (desgaste)']], p.kind)}</select></label>
+    <div class="actions"><button class="btn gold lg" style="flex:1">Salvar</button>${p.id ? '<button type="button" class="btn danger lg" id="pdel">Excluir</button>' : ''}</div></form>`, (md) => {
+    $('#pf', md.el).onsubmit = async (e) => { e.preventDefault(); const d = formData(e.target); await run(() => (p.id ? put('/products/' + p.id, d) : post('/products', d))); md.close(); toast('Produto salvo'); await loadMeta(); reload(); };
+    const pd = $('#pdel', md.el); if (pd) pd.onclick = async () => { if (confirm('Excluir este produto? Ele sai das fichas técnicas.')) { await run(() => del('/products/' + p.id)); md.close(); await loadMeta(); reload(); } };
+  });
+  const fim = (p) => modal('Frasco acabou: ' + esc(p.name), `<form id="ff2">
+    <p class="small muted" style="margin-top:0">Contei <b>${Math.round(p.used * 10) / 10}</b> serviço(s) executado(s) que usam ${esc(p.name)} pela ficha técnica desde ${fdate(p.opened_at)}. Corrija se for diferente.</p>
+    <div class="row"><label class="f"><span>Quantos serviços rendeu</span><input class="i" name="yield_real" inputmode="decimal" value="${fv(Math.round(p.used * 10) / 10 || '')}" placeholder="${p.yield ? Math.round(p.yield) : ''}" required></label>
+    <label class="f"><span>Preço do novo frasco (R$)</span><input class="i" name="new_price" inputmode="decimal" value="${fv(p.bottle_price ?? p.price)}"></label></div>
+    <button class="btn gold block lg">Encerrar e abrir o novo frasco</button></form>`, (md) => {
+    $('#ff2', md.el).onsubmit = async (e) => { e.preventDefault(); await run(() => post(`/products/${p.id}/finish`, formData(e.target))); md.close(); toast('Frasco encerrado. Novo frasco aberto.'); await loadMeta(); reload(); };
+  });
+  $('#npr', v).onclick = () => form();
+  $$('[data-p]', v).forEach((el) => {
+    const p = list.find((x) => x.id == el.dataset.p);
+    $$('[data-a]', el).forEach((b) => { b.onclick = () => (b.dataset.a === 'fim' ? fim(p) : form(p)); });
+  });
 });

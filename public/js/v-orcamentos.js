@@ -90,7 +90,7 @@ async function quoteForm(v, existing, query) {
   };
   if (existing) {
     Object.assign(st, { type: existing.vehicle_type || (existing.vehicle_size === 'G' ? 'carro_g' : 'carro_p'), vehicle_id: existing.vehicle_id, discount: existing.discount, surcharge: existing.surcharge, notes: existing.notes || '', internal_notes: existing.internal_notes || '', validity_days: existing.validity_days });
-    st.items = existing.items.map((i) => ({ service_id: i.service_id, name: i.name, price: i.price, cost: i.cost, op_cost: i.op_cost }));
+    st.items = existing.items.map((i) => ({ service_id: i.service_id, name: i.name, price: i.price, cost: i.cost, op_cost: i.op_cost, pre_cost: i.pre_cost }));
     st.client = await api('/clients/' + existing.client_id);
   } else if (query.client) {
     st.client = await api('/clients/' + query.client);
@@ -229,6 +229,8 @@ async function quoteForm(v, existing, query) {
 
   // Preço e custos conforme o tipo de veículo (tabela serviço × veículo)
   const rowOf = (s) => priceRow(s, st.type);
+  // custos que vão para o item: material e linha e cola (saem antes da divisão) e insumos (caixa paga)
+  const rowCosts = (r) => ({ cost: r.mat_pending ? 0 : Number(r.cost) || 0, pre_cost: Number(r.pre_cost) || 0, op_cost: Number(r.ins) || 0 });
   const renderSize = () => {
     $$('#qqSize [data-size]').forEach((b) => b.classList.toggle('active', b.dataset.size === st.type));
     services.forEach((s) => {
@@ -242,7 +244,7 @@ async function quoteForm(v, existing, query) {
     if (!t || t === st.type) return;
     st.type = t;
     // reprecifica os itens que têm preço definido para o novo tipo
-    st.items.forEach((it) => { const s = services.find((x) => x.id === it.service_id); const r = s && rowOf(s); if (r && r.price != null) { it.price = r.price; it.cost = r.cost || 0; it.op_cost = r.op_cost || 0; } });
+    st.items.forEach((it) => { const s = services.find((x) => x.id === it.service_id); const r = s && rowOf(s); if (r && r.price != null) Object.assign(it, { price: r.price, ...rowCosts(r) }); });
     renderSize(); renderItems();
   };
   $$('#qqSize [data-size]').forEach((b) => { b.onclick = () => setType(b.dataset.size); });
@@ -250,7 +252,7 @@ async function quoteForm(v, existing, query) {
     b.onclick = () => {
       const s = services.find((x) => x.id == b.dataset.add);
       const r = rowOf(s) || {};
-      st.items.push({ service_id: s.id, name: s.name, price: r.price || 0, cost: r.cost || 0, op_cost: r.op_cost || 0 });
+      st.items.push({ service_id: s.id, name: s.name, price: r.price || 0, ...rowCosts(r) });
       renderItems();
     };
   });

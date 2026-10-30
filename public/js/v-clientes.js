@@ -196,57 +196,70 @@ function eventForm(clientId) {
   });
 }
 
-// ---------- Serviços / tabela de preços (por tipo de veículo) ----------
+// ---------- Serviços / tabela de preços em grade (serviço × veículo) ----------
 route(/^#\/servicos$/, async (v) => {
-  const list = await api('/services');
+  await loadMeta();
+  const list = S.meta.services;
   const cats = [...new Set(list.filter((s) => s.active).map((s) => s.category || 'Outros'))];
   const pr = pricing(); const st = S.meta.settings;
   const rowsOf = (s) => (s.prices || []).filter((p) => p.active);
-  const under = []; const pend = [];
-  list.filter((s) => s.active).forEach((s) => rowsOf(s).forEach((p) => {
-    if (p.price == null && s.name !== 'Outros') pend.push(`${s.name} (${vtLabel(p.vehicle_type)})`);
-    else if (p.price < minPriceRow(p)) under.push(`${s.name} (${vtLabel(p.vehicle_type)})`);
-  }));
+  const cnt = { 'abaixo do mínimo': 0, 'falta custo': 0, 'a definir': 0 };
+  list.filter((s) => s.active && s.name !== 'Outros').forEach((s) => rowsOf(s).forEach((p) => { const k = situacaoRow(p)[0]; if (k in cnt) cnt[k]++; }));
   v.innerHTML = `<div class="page-head"><h1>Serviços e preços</h1><button class="btn gold" id="ns">${icon('plus')} Serviço</button></div>
-    <div class="card small"><b>Como o preço mínimo é calculado</b><br>
-      <span class="muted">O caixa recebe ${pct(pr.caixa)} de (preço − material) e precisa pagar os insumos e o operacional do serviço + ${pct(pr.fixo)} do preço para os custos fixos (${brl0(st.custos_fixos_mes)}/mês ÷ meta de ${brl0(st.meta_faturamento_mes)}).</span><br>
-      <b>Preço mínimo = (insumos + operacional + ${pct(pr.caixa)} × material) ÷ ${(pr.folga * 100).toFixed(1).replace('.', ',')}%</b>
-      ${under.length ? `<div class="red bold" style="margin-top:6px">⚠ Abaixo do mínimo: ${under.map(esc).join(', ')}</div>` : '<div class="green bold" style="margin-top:6px">Nenhum preço abaixo do mínimo.</div>'}
-      ${pend.length ? `<div class="amber bold" style="margin-top:6px">Preço a definir (${pend.length}): ${pend.map(esc).join(', ')}</div>` : ''}</div>
-    ${cats.map((cat) => `<div class="card tight"><h2 style="padding:14px 14px 0">${esc(cat)}</h2><div class="list">
-      ${list.filter((s) => s.active && (s.category || 'Outros') === cat).map((s) => `<div class="item" data-s="${s.id}"><div class="main">
-        <div class="title">${esc(s.name)}</div><div class="sub">${esc(s.description || '')}</div>
-        <table class="t small" style="margin-top:6px"><tr><th>Veículo</th><th class="n">Preço</th><th class="n">Material</th><th class="n">Insumos</th><th class="n">Mínimo</th></tr>
-        ${rowsOf(s).map((p) => { const m = minPriceRow(p); return `<tr><td>${esc(vtLabel(p.vehicle_type))}</td>
-          <td class="n ${p.price == null ? 'amber' : p.price < m ? 'red bold' : 'bold'}">${p.price == null ? 'a definir' : brl0(p.price)}${p.price != null && p.price < m ? ' ⚠' : ''}</td>
-          <td class="n">${p.cost ? brl0(p.cost) : '—'}</td><td class="n">${brl(p.op_cost || 0)}</td><td class="n muted">${brl0(m)}</td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">Nenhum tipo de veículo marcado</td></tr>'}</table>
-      </div></div>`).join('')}</div></div>`).join('')}
-    ${list.some((s) => !s.active) ? `<details class="card"><summary class="muted">Serviços inativos (${list.filter((s) => !s.active).length})</summary><div class="list">${list.filter((s) => !s.active).map((s) => `<div class="item" data-s="${s.id}"><div class="main"><div class="title">${esc(s.name)} <span class="tag red">inativo</span></div></div></div>`).join('')}</div></details>` : ''}`;
+    <div class="card small"><b>Como a divisão e o mínimo são calculados</b><br>
+      <span class="muted">1) O caixa fica com ${pct(pr.cp)} do preço. 2) Saem material, linha e cola e a taxa do cartão. 3) A sobra é dividida: ${esc(st.split_socio1_nome)} ${pct(pr.pG)}, 2ª parte ${pct(pr.pP)} (${esc(st.split_socio2_nome)} na tapeçaria; GSM na estética), caixa ${pct(pr.rr)}.
+      Custos fixos: ${brl0(pr.fixos)} ÷ meta de ${brl0(pr.meta)} = ${(pr.f * 100).toFixed(1).replace('.', ',')}% de cada preço.</span><br>
+      <b>Mínimo</b>: menor preço em que o caixa líquido não fica negativo e a sobra também não.
+      <div style="margin-top:6px">${cnt['abaixo do mínimo'] ? `<span class="tag red">${cnt['abaixo do mínimo']} abaixo do mínimo</span> ` : ''}${cnt['falta custo'] ? `<span class="tag blue">${cnt['falta custo']} com custo faltando</span> ` : ''}${cnt['a definir'] ? `<span class="tag amber">${cnt['a definir']} preço a definir</span>` : ''}</div></div>
+    ${cats.map((cat) => `<div class="card tight"><h2 style="padding:14px 14px 0">${esc(cat)}</h2>
+      ${list.filter((s) => s.active && (s.category || 'Outros') === cat).map((s) => `<div style="padding:12px 14px;border-top:1px solid var(--line)">
+        <div class="row"><div><b>${esc(s.name)}</b><div class="small muted">${esc(s.description || '')}</div></div><button class="btn sm auto" data-s="${s.id}">${icon('edit')} Editar</button></div>
+        <div class="scroll-x"><table class="t small" style="margin-top:6px;min-width:780px"><tr><th>Veículo</th><th class="n">Preço</th><th class="n">Caixa ${pct(pr.cp)}</th><th class="n">Mat.+linha</th><th class="n">Sobra</th><th class="n">${esc(st.split_socio1_nome)}</th><th class="n">2ª parte</th><th class="n">Insumos</th><th class="n">Caixa líq.</th><th class="n">Fica na GSM</th><th class="n">Mínimo</th><th>Situação</th></tr>
+        ${rowsOf(s).map((p) => {
+          const [sit, cls] = situacaoRow(p); const price = p.price || 0; const ma = matRow(p);
+          const b = breakdown(price, ma, Number(p.ins) || 0, price * pr.f);
+          const empresa = b.caixaLiq + (s.category === 'Tapeçaria' ? 0 : b.parte2);
+          return `<tr><td>${esc(vtLabel(p.vehicle_type))}</td><td class="n bold">${p.price == null ? 'a definir' : brl0(p.price)}</td><td class="n">${brl0(b.caixa1)}</td>
+            <td class="n">${p.mat_pending ? '?' : brl0(ma)}</td><td class="n">${brl0(b.sobra)}</td><td class="n">${brl0(b.gustavo)}</td><td class="n">${brl0(b.parte2)}</td>
+            <td class="n">${p.ins == null ? '?' : brl(p.ins)}<div class="tiny muted">${p.ins_source === 'ficha' ? 'ficha' : 'estim.'}</div></td><td class="n">${brl0(b.caixaLiq)}</td><td class="n">${brl0(empresa)}</td>
+            <td class="n muted">${brl0(minPriceRow(p))}</td><td><span class="tag ${cls}">${sit}</span></td></tr>`;
+        }).join('') || '<tr><td colspan="12" class="muted">Nenhum veículo marcado</td></tr>'}</table></div></div>`).join('')}</div>`).join('')}
+    ${list.some((s) => !s.active) ? `<details class="card"><summary class="muted">Serviços inativos (${list.filter((s) => !s.active).length})</summary>${list.filter((s) => !s.active).map((s) => `<div class="row" style="padding:8px 0"><span>${esc(s.name)}</span><button class="btn sm auto" data-s="${s.id}">Abrir</button></div>`).join('')}</details>` : ''}`;
   $('#ns', v).onclick = () => serviceForm();
   $$('[data-s]', v).forEach((el) => { el.onclick = () => serviceForm(list.find((s) => s.id == el.dataset.s)); });
 });
-function serviceForm(s = { active: 1, prices: [] }) {
+async function serviceForm(s = { active: 1, prices: [] }) {
+  const prods = await api('/products');
   const cats = [...new Set(['Lavagem', 'Higienização', 'Polimento', 'Tapeçaria', 'Outros', ...S.meta.services.map((x) => x.category).filter(Boolean)])];
   const row = (t) => (s.prices || []).find((p) => p.vehicle_type === t) || {};
-  modal(s.id ? 'Editar serviço' : 'Novo serviço', `<form id="sf">
-    <label class="f"><span>Nome *</span><input class="i" name="name" value="${esc(s.name)}" required></label>
-    <div class="row"><label class="f"><span>Categoria</span><input class="i" name="category" list="cats" value="${esc(s.category)}"><datalist id="cats">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label></div>
+  const fv = (x) => (x == null || x === '' ? '' : String(x).replace('.', ','));
+  modal(s.id ? esc(s.name) : 'Novo serviço', `<form id="sf">
+    <div class="row"><label class="f"><span>Nome *</span><input class="i" name="name" value="${esc(s.name)}" required></label>
+    <label class="f"><span>Categoria</span><input class="i" name="category" list="cats" value="${esc(s.category)}"><datalist id="cats">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label></div>
     <label class="f"><span>Descrição curta (aparece para o cliente)</span><input class="i" name="description" value="${esc(s.description)}"></label>
-    <h3 style="margin-top:6px">Veículos atendidos e preços</h3>
-    <p class="tiny muted" style="margin-top:0">Marque os tipos de veículo deste serviço. Preço vazio = "a definir". <b>Material</b> (tecido, corvin, kit do farol): o cliente paga, sai antes da divisão. <b>Insumos</b> (produtos de lavagem, panos, desgaste): o caixa paga.</p>
-    ${S.meta.vehicleTypes.map(([t, l]) => { const p = row(t); return `<div class="card" style="padding:10px;margin-bottom:8px" data-vt="${t}">
-      <label class="row" style="margin-bottom:6px"><input type="checkbox" class="auto" data-k="active" style="width:22px;height:22px" ${p.active ? 'checked' : ''}><b>${esc(l)}</b></label>
-      <div class="row"><label class="f" style="margin:0"><span>Preço</span><input class="i" data-k="price" inputmode="decimal" value="${p.price ?? ''}" placeholder="a definir"></label>
-      <label class="f" style="margin:0"><span>Material</span><input class="i" data-k="cost" inputmode="decimal" value="${p.cost || ''}"></label>
-      <label class="f" style="margin:0"><span>Insumos</span><input class="i" data-k="op_cost" inputmode="decimal" value="${p.op_cost || ''}"></label></div></div>`; }).join('')}
+    <p class="tiny muted" style="margin-top:0"><b>Material</b> e <b>linha e cola</b>: o cliente paga, saem antes da divisão (material vazio = a definir). <b>Insumos</b> (produtos, panos, desgaste): o caixa paga. Na ficha técnica, fator 1 = uso normal, 2 = o dobro, 0,5 = metade; o custo da ficha leva +${esc(S.meta.settings.margem_seg || 30)}% de margem de segurança.</p>
+    ${S.meta.vehicleTypes.map(([t, l]) => { const p = row(t); const estado = !p.active ? 'nao' : p.price == null ? 'definir' : 'preco'; const sh = p.sheet || {};
+      return `<div class="card" style="padding:10px;margin-bottom:8px" data-vt="${t}">
+      <div class="row"><b>${esc(l)}</b><select class="i auto" data-k="estado" style="max-width:150px"><option value="nao" ${estado === 'nao' ? 'selected' : ''}>Não faz</option><option value="definir" ${estado === 'definir' ? 'selected' : ''}>A definir</option><option value="preco" ${estado === 'preco' ? 'selected' : ''}>Tem preço</option></select></div>
+      <div class="grid g2 md-g4" style="margin-top:8px">
+        <label class="f" style="margin:0"><span>Preço</span><input class="i" data-k="price" inputmode="decimal" value="${fv(p.price)}"></label>
+        <label class="f" style="margin:0"><span>Material</span><input class="i" data-k="cost" inputmode="decimal" value="${p.mat_pending ? '' : fv(p.cost)}" placeholder="a definir"></label>
+        <label class="f" style="margin:0"><span>Linha e cola</span><input class="i" data-k="pre_cost" inputmode="decimal" value="${fv(p.pre_cost || '')}"></label>
+        <label class="f" style="margin:0"><span>Insumos estimados</span><input class="i" data-k="op_est" inputmode="decimal" value="${fv(p.op_est)}" placeholder="a informar"></label></div>
+      <details style="margin-top:6px"><summary class="small">Ficha técnica (${Object.keys(sh).length} produto(s)) · usando ${p.ins_mode === 'ficha' ? 'ficha' : 'estimativa'}</summary>
+        <label class="row small" style="margin-top:6px"><input type="checkbox" data-k="ficha" class="auto" style="width:20px;height:20px" ${p.ins_mode === 'ficha' ? 'checked' : ''}> Usar a ficha técnica (desmarcado: usa os insumos estimados)</label>
+        <div class="ficha">${prods.map((pr) => `<label><span>${esc(pr.name)}</span><input data-prod="${pr.id}" inputmode="decimal" value="${fv(sh[pr.id])}" aria-label="Fator de ${esc(pr.name)}"></label>`).join('')}</div></details></div>`; }).join('')}
     <label class="f row" style="align-items:center"><input type="checkbox" name="active" class="auto" style="width:22px;height:22px" ${s.active ? 'checked' : ''}> <span style="margin:0">Serviço ativo</span></label>
     <button class="btn gold block lg">Salvar</button></form>`, (md) => {
     $('#sf', md.el).onsubmit = async (e) => {
       e.preventDefault();
       const d = formData(e.target); d.active = !!d.active;
+      const on = (x) => (String(x).trim() === '' ? null : num(x));
       d.prices = $$('[data-vt]', md.el).map((c) => {
-        const g = (k) => $(`[data-k="${k}"]`, c);
-        return { vehicle_type: c.dataset.vt, active: g('active').checked, price: g('price').value.trim() === '' ? null : num(g('price').value), cost: num(g('cost').value), op_cost: num(g('op_cost').value) };
+        const g = (k) => $(`[data-k="${k}"]`, c); const estado = g('estado').value;
+        const sheet = {}; $$('[data-prod]', c).forEach((inp) => { const f = on(inp.value); if (f) sheet[inp.dataset.prod] = f; });
+        return { vehicle_type: c.dataset.vt, active: estado !== 'nao', price: estado === 'preco' ? on(g('price').value) : null, cost: on(g('cost').value),
+          pre_cost: num(g('pre_cost').value), op_est: on(g('op_est').value), ins_mode: g('ficha').checked ? 'ficha' : 'estimativa', sheet };
       });
       const first = d.prices.find((p) => p.active && p.price != null);
       d.price = first ? first.price : 0; // preço de referência (site / leads)
