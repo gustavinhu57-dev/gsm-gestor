@@ -253,3 +253,26 @@ details > summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
 @media (min-width: 1024px) { #kb .col { width: 250px; } }
 .kfilters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
 @media (min-width: 900px) { .kfilters { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+/* Avisos do funil (botão flutuante) */
+.aviso-fab { position: fixed; right: 14px; bottom: calc(var(--bottom) + env(safe-area-inset-bottom) + 14px); z-index: 60; display: flex; align-items: center; gap: 8px;
+  height: 48px; padding: 0 14px 0 12px; border-radius: 24px; border: 0; background: #1f2937; color: #fff; font: inherit; font-weight: 700; font-size: 14px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.25); cursor: pointer; }
+.aviso-fab svg { width: 20px; height: 20px; color: #25d366; }
+.aviso-fab .aviso-n { min-width: 24px; height: 24px; padding: 0 7px; border-radius: 12px; background: var(--gold); color: var(--gold-ink, #1f2937); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; }
+.aviso-fab.urgent .aviso-n { background: #dc2626; color: #fff; }
+.aviso-fab.urgent { animation: avisoPulse 2.4s ease-in-out infinite; }
+@keyframes avisoPulse { 0%, 100% { box-shadow: 0 8px 24px rgba(0,0,0,.25); } 50% { box-shadow: 0 8px 24px rgba(220,38,38,.45); } }
+@media (max-width: 899px) { .aviso-fab .aviso-txt { display: none; } .aviso-fab { padding: 0 10px; } }
+@media (min-width: 900px) { .aviso-fab { bottom: 22px; right: 22px; } }
+@media (prefers-reduced-motion: reduce) { .aviso-fab.urgent { animation: none; } }
+.aviso-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; font-size: 14px; }
+.aviso-meta input { width: 64px; display: inline-block; padding: 4px 8px; height: 32px; margin-left: 4px; }
+.aviso-group { margin-bottom: 14px; }
+.aviso-gh { font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--mute); padding: 4px 0 6px; border-bottom: 1px solid var(--line); }
+.aviso-gh .n { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 10px; background: var(--soft); color: var(--ink); text-align: center; }
+.aviso-item { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.aviso-item .sub { font-size: 13px; margin-top: 2px; }
+.aviso-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.kcard .needs { margin-top: 6px; font-size: 12px; font-weight: 700; color: #92400e; background: #fef3c7; border-radius: 8px; padding: 4px 8px; }
+.kcard .needs.urgent { color: #991b1b; background: #fee2e2; }

@@ -152,6 +152,11 @@ route(/^#\/crm$/, async (v, _, query) => {
   $('#kOrig').onchange = $('#kCamp').onchange = $('#kSeg').onchange = $('#kPri').onchange = go;
   $('#kNew').onclick = () => clientForm({}, () => reload());
   $('#kImp').onclick = () => importForm({ mode: 'csv' });
+  // Marca nos cartões quem está esperando mensagem (mesma regra do aviso flutuante)
+  api('/funnel-alerts').then((fa) => fa.groups.flatMap((g) => g.items).forEach((it) => {
+    const el = $(`[data-card="${it.id}"]`, v);
+    if (el && !$('.needs', el)) el.insertAdjacentHTML('beforeend', `<div class="needs ${it.urgent ? 'urgent' : ''}">📨 ${esc(it.reason)}</div>`);
+  })).catch(() => {});
   $('#kExec').onchange = (e) => { try { localStorage.setItem('gsm_funil_exec', e.target.checked ? '1' : '0'); } catch (err) { /* sem storage */ } reload(); };
   // Rolagem automática do quadro ao arrastar perto das bordas
   const kb = $('#kb');
