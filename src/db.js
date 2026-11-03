@@ -24,7 +24,7 @@ function addDays(dateStr, n) {
 }
 
 const STAGES = [
-  ['novo', 'Novo lead'], ['abordado', 'Abordado'], ['respondeu', 'Respondeu'],
+  ['novo', 'A contatar'], ['abordado', 'Apresentação enviada'], ['respondeu', 'Respondeu'],
   ['interessado', 'Interessado'], ['orcamento', 'Orçamento'], ['followup', 'Follow-up'],
   ['fechado', 'Fechado'], ['agendado', 'Agendado'], ['executado', 'Executado'],
   ['pago', 'Pago'], ['posvenda', 'Pós-venda'], ['standby', 'Stand-by'],
@@ -32,7 +32,9 @@ const STAGES = [
 const STAGE_IDX = Object.fromEntries(STAGES.map(([k], i) => [k, i]));
 
 const CLIENT_TYPES = ['Pessoa física', 'Empresa', 'Frota', 'Caminhoneiro', 'Oficina/parceiro', 'Revenda'];
-const STANDBY_REASONS = ['Achou caro', 'Sem dinheiro agora', 'Vai pensar', 'Sem resposta', 'Adiou', 'Escolheu concorrente', 'Não é prioridade', 'Outro'];
+const STANDBY_REASONS = ['Sem interesse', 'Achou caro', 'Sem dinheiro agora', 'Vai pensar', 'Sem resposta', 'Adiou', 'Escolheu concorrente', 'Não é prioridade', 'Outro'];
+// Segmentos do funil comercial (prospecção ativa em Manaus)
+const SEGMENTS = ['Transportadora', 'Frota', 'Embarcações', 'Locadora', 'Loja de veículos', 'Oficina', 'Lava-jato', 'Comerciante', 'Consumidor final'];
 const PHOTO_CATEGORIES = ['Frente', 'Traseira', 'Lateral esquerda', 'Lateral direita', 'Interior', 'Banco', 'Avarias', 'Detalhes', 'Outras'];
 const PHOTO_PHASES = [['entrada', 'Entrada/orçamento'], ['antes', 'Antes'], ['depois', 'Depois']];
 const COST_CATEGORIES = ['Material', 'Produtos', 'Mão de obra', 'Comissão/parceiro', 'Outros'];
@@ -172,6 +174,11 @@ CREATE TABLE IF NOT EXISTS fixed_costs (
 if (!hasCol('quotes', 'vehicle_type')) db.exec('ALTER TABLE quotes ADD COLUMN vehicle_type TEXT');
 if (!hasCol('vehicles', 'vehicle_type')) db.exec('ALTER TABLE vehicles ADD COLUMN vehicle_type TEXT');
 if (!hasCol('quotes', 'barbosa_helped')) db.exec('ALTER TABLE quotes ADD COLUMN barbosa_helped INTEGER NOT NULL DEFAULT 0');
+// 03/11: funil comercial — dados de empresa e segmento para prospecção
+[['segment', 'TEXT'], ['priority', 'TEXT'], ['contact_person', 'TEXT'], ['phone', 'TEXT'], ['address', 'TEXT'],
+  ['neighborhood', 'TEXT'], ['website', 'TEXT'], ['instagram', 'TEXT'], ['distance_km', 'REAL'], ['source_ref', 'TEXT']]
+  .forEach(([c, t]) => { if (!hasCol('clients', c)) db.exec(`ALTER TABLE clients ADD COLUMN ${c} ${t}`); });
+db.exec('CREATE INDEX IF NOT EXISTS idx_clients_segment ON clients(segment)');
 if (!hasCol('quotes', 'vehicle_size')) db.exec("ALTER TABLE quotes ADD COLUMN vehicle_size TEXT DEFAULT 'P'");
 
 // Tabela oficial GSM (out/2026). Custos de estética = estimativa de produtos do kit Vonixx (preço médio de mercado);
@@ -432,6 +439,6 @@ function getSettings() {
 
 module.exports = {
   db, DATA_DIR, now, today, addDays, getSettings,
-  STAGES, STAGE_IDX, CLIENT_TYPES, STANDBY_REASONS, PHOTO_CATEGORIES, PHOTO_PHASES,
+  STAGES, STAGE_IDX, CLIENT_TYPES, STANDBY_REASONS, PHOTO_CATEGORIES, PHOTO_PHASES, SEGMENTS,
   COST_CATEGORIES, EXPENSE_CATEGORIES, PAYMENT_METHODS, ROLES, VEHICLE_TYPES,
 };

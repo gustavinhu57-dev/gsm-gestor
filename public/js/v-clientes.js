@@ -10,6 +10,22 @@ function clientForm(c = {}, onSaved) {
       <label class="f"><span>Origem</span><select class="i" name="origin_id">${opts(m.origins.filter((o) => o.active || o.id === c.origin_id), c.origin_id, 'Selecione…')}</select></label>
       <label class="f"><span>Tipo</span><select class="i" name="client_type">${opts(m.clientTypes, c.client_type || 'Pessoa física')}</select></label>
     </div>
+    <div class="row">
+      <label class="f"><span>Segmento</span><select class="i" name="segment">${opts(m.segments, c.segment, '—')}</select></label>
+      <label class="f auto" style="width:130px"><span>Prioridade</span><select class="i" name="priority">${opts(['A', 'B', 'C'], c.priority, '—')}</select></label>
+    </div>
+    <details ${c.segment && c.segment !== 'Consumidor final' ? 'open' : ''}><summary class="small muted">Dados da empresa (prospecção)</summary>
+      <div class="grid g2" style="margin-top:8px">
+        <label class="f"><span>Pessoa de contato</span><input class="i" name="contact_person" value="${esc(c.contact_person)}" placeholder="Ex.: gerente de frota"></label>
+        <label class="f"><span>Telefone fixo</span><input class="i" name="phone" type="tel" value="${esc(c.phone)}"></label>
+        <label class="f"><span>Bairro</span><input class="i" name="neighborhood" value="${esc(c.neighborhood)}"></label>
+        <label class="f"><span>Instagram</span><input class="i" name="instagram" value="${esc(c.instagram)}" placeholder="@empresa"></label>
+        <label class="f"><span>Site</span><input class="i" name="website" value="${esc(c.website)}"></label>
+        <label class="f"><span>Distância (km)</span><input class="i" name="distance_km" inputmode="decimal" value="${esc(c.distance_km ?? '')}"></label>
+      </div>
+      <label class="f"><span>Endereço</span><input class="i" name="address" value="${esc(c.address)}"></label>
+      <input type="hidden" name="source_ref" value="${esc(c.source_ref)}">
+    </details>
     ${isNew ? `<div class="row">
       <label class="f"><span>Marca/modelo</span><input class="i" name="v_model" placeholder="Ex.: Chevrolet Onix"></label>
       <label class="f auto" style="width:120px"><span>Placa</span><input class="i" name="v_plate" style="text-transform:uppercase" placeholder="ABC1D23"></label>
@@ -74,7 +90,15 @@ function vehicleForm(clientId, v = {}, onSaved) {
 
 function importForm(preset = {}) {
   const m = S.meta;
-  modal('Importar lista de contatos', `<form id="imf">
+  const csv = preset.mode === 'csv';
+  modal('Importar contatos', `<div class="chips" style="margin-bottom:10px"><button class="chip ${csv ? '' : 'active'}" data-mode="txt">Lista simples</button><button class="chip ${csv ? 'active' : ''}" data-mode="csv">Planilha de prospecção (CSV)</button></div>
+  ${csv ? `<form id="imc">
+    <p class="small muted" style="margin-top:0">Escolha o arquivo <b>.csv</b> da prospecção (colunas: nome, segmento, prioridade, whatsapp, telefone, bairro, endereço, abordagem…). Empresas já cadastradas são ignoradas. Elas entram na coluna <b>A contatar</b> do funil.</p>
+    <label class="f"><span>Arquivo CSV</span><input class="i" type="file" id="imcFile" accept=".csv,text/csv"></label>
+    <label class="f"><span>…ou cole o conteúdo</span><textarea class="i" name="text" rows="5" placeholder="nome;segmento;prioridade;whatsapp;telefone;bairro"></textarea></label>
+    <label class="f"><span>Campanha</span><select class="i" name="campaign_id">${opts(m.campaigns.filter((x) => x.active), preset.campaign_id, 'Nenhuma')}</select></label>
+    <button class="btn gold block lg" type="submit">Importar para o funil</button></form>`
+    : `<form id="imf">
     <p class="small muted" style="margin-top:0">Cole um contato por linha. Ex.: <code>João Silva 11 99999-8888</code> ou <code>Maria;11988887777</code>. Números já cadastrados são ignorados.</p>
     <label class="f"><span>Contatos</span><textarea class="i" name="text" rows="8" placeholder="João Silva 11999998888&#10;Maria Souza;(11) 98888-7777" required></textarea></label>
     <div class="row">
@@ -82,14 +106,25 @@ function importForm(preset = {}) {
       <label class="f"><span>Campanha</span><select class="i" name="campaign_id">${opts(m.campaigns.filter((x) => x.active), preset.campaign_id ?? m.campaigns[0]?.id, 'Nenhuma')}</select></label>
     </div>
     <label class="f"><span>Tipo de cliente</span><select class="i" name="client_type">${opts(m.clientTypes, 'Pessoa física')}</select></label>
-    <button class="btn gold block lg" type="submit">Importar</button></form>`, (md) => {
-    $('#imf', md.el).onsubmit = async (e) => {
-      e.preventDefault();
-      const r = await run(() => post('/clients/import', formData(e.target)));
+    <button class="btn gold block lg" type="submit">Importar</button></form>`}`, (md) => {
+    $$('[data-mode]', md.el).forEach((b) => { b.onclick = () => { md.close(); importForm({ ...preset, mode: b.dataset.mode }); }; });
+    const done = (r, hash) => {
       md.close();
       toast(`${r.created} contato(s) importado(s)${r.skipped.length ? ` · ${r.skipped.length} já existiam` : ''}`);
-      location.hash = '#/clientes'; reload();
+      if (location.hash.split('?')[0] === hash) reload(); else location.hash = hash;
     };
+    const fc = $('#imc', md.el);
+    if (fc) {
+      fc.onsubmit = async (e) => {
+        e.preventDefault();
+        const d = formData(e.target); const file = $('#imcFile', md.el).files[0];
+        if (file) d.text = await file.text();
+        if (!String(d.text || '').trim()) { toast('Escolha o arquivo CSV', true); return; }
+        done(await run(() => post('/clients/import-csv', d)), '#/crm');
+      };
+    }
+    const ff = $('#imf', md.el);
+    if (ff) ff.onsubmit = async (e) => { e.preventDefault(); done(await run(() => post('/clients/import', formData(e.target))), '#/clientes'); };
   });
 }
 
@@ -136,6 +171,7 @@ route(/^#\/cliente\/(\d+)$/, async (v, [id]) => {
   <div class="card">
     <div class="actions" style="margin-bottom:12px">
       <span class="tag">${esc(c.origin_name || 'sem origem')}</span><span class="tag">${esc(c.client_type || '—')}</span>
+      ${c.segment ? `<span class="tag">${esc(c.segment)}</span>` : ''}${c.priority ? `<span class="pri pri-${esc(c.priority)}">${esc(c.priority)}</span>` : ''}
       ${c.campaign_name ? `<span class="tag gold">${esc(c.campaign_name)}</span>` : ''}
     </div>
     <div class="grid g2" style="margin-bottom:12px">
@@ -147,6 +183,11 @@ route(/^#\/cliente\/(\d+)$/, async (v, [id]) => {
     <label class="f"><span>Etapa no CRM</span><select class="i" id="cstage">${opts(S.meta.stages, c.stage)}</select></label>
     <dl class="kv">
       <dt>WhatsApp</dt><dd>${esc(c.whatsapp || '—')}</dd>
+      ${c.phone ? `<dt>Telefone</dt><dd><a href="tel:${esc(c.phone.replace(/[^\d+]/g, ''))}">${esc(c.phone)}</a></dd>` : ''}
+      ${c.contact_person ? `<dt>Contato</dt><dd>${esc(c.contact_person)}</dd>` : ''}
+      ${c.address || c.neighborhood ? `<dt>Endereço</dt><dd>${esc(c.address || c.neighborhood)}${c.address ? ` · <a target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}">mapa</a>` : ''}${c.distance_km ? ` · ${String(c.distance_km).replace('.', ',')} km da GSM` : ''}</dd>` : ''}
+      ${c.instagram ? `<dt>Instagram</dt><dd>${esc(c.instagram)}</dd>` : ''}
+      ${c.website ? `<dt>Site</dt><dd>${esc(c.website)}</dd>` : ''}
       <dt>Entrada</dt><dd>${fdate(c.entry_date)}</dd>
       <dt>Responsável</dt><dd>${esc(c.owner || '—')}</dd>
       <dt>Último contato</dt><dd>${c.last_contact_at ? fdate(c.last_contact_at) + ' (' + relDay(c.last_contact_at) + ')' : '—'}</dd>

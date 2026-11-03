@@ -5,7 +5,7 @@ const fs = require('fs');
 const multer = require('multer');
 const {
   db, DATA_DIR, now, today, addDays, getSettings,
-  STAGES, STAGE_IDX, CLIENT_TYPES, STANDBY_REASONS, PHOTO_CATEGORIES, PHOTO_PHASES,
+  STAGES, STAGE_IDX, CLIENT_TYPES, STANDBY_REASONS, PHOTO_CATEGORIES, PHOTO_PHASES, SEGMENTS,
   COST_CATEGORIES, EXPENSE_CATEGORIES, PAYMENT_METHODS, ROLES, VEHICLE_TYPES,
 } = require('./db');
 const auth = require('./auth');
@@ -60,7 +60,7 @@ r.get('/meta', wrap(() => ({
   fixedCosts: db.prepare('SELECT * FROM fixed_costs ORDER BY sort, id').all(),
   users: db.prepare('SELECT id, name, role FROM users WHERE active = 1 ORDER BY name').all(),
   settings: getSettings(),
-  stages: STAGES, clientTypes: CLIENT_TYPES, standbyReasons: STANDBY_REASONS,
+  stages: STAGES, clientTypes: CLIENT_TYPES, standbyReasons: STANDBY_REASONS, segments: SEGMENTS,
   photoCategories: PHOTO_CATEGORIES, photoPhases: PHOTO_PHASES, costCategories: COST_CATEGORIES,
   expenseCategories: EXPENSE_CATEGORIES, paymentMethods: PAYMENT_METHODS, roles: ROLES, today: today(),
 })));
@@ -217,6 +217,9 @@ function clientFields(b) {
     utm_source: str(b.utm_source), utm_medium: str(b.utm_medium), utm_campaign: str(b.utm_campaign),
     utm_content: str(b.utm_content), utm_term: str(b.utm_term), ad_campaign_id: str(b.ad_campaign_id),
     adset_id: str(b.adset_id), ad_id: str(b.ad_id), creative_id: str(b.creative_id),
+    segment: str(b.segment), priority: str(b.priority), contact_person: str(b.contact_person), phone: str(b.phone),
+    address: str(b.address), neighborhood: str(b.neighborhood), website: str(b.website), instagram: str(b.instagram),
+    distance_km: b.distance_km === '' || b.distance_km == null ? null : Number(b.distance_km), source_ref: str(b.source_ref),
   };
 }
 function insertVehicle(clientId, v) {
@@ -226,7 +229,7 @@ function insertVehicle(clientId, v) {
 }
 
 r.get('/clients', wrap((req) => {
-  const { q, origin_id, stage, campaign_id, client_type } = req.query;
+  const { q, origin_id, stage, campaign_id, client_type, segment } = req.query;
   const where = []; const p = [];
   if (q) {
     const d = digits(q); const pl = normPlate(q);
@@ -237,6 +240,7 @@ r.get('/clients', wrap((req) => {
   if (stage) { where.push('c.stage = ?'); p.push(stage); }
   if (campaign_id) { where.push('c.campaign_id = ?'); p.push(campaign_id); }
   if (client_type) { where.push('c.client_type = ?'); p.push(client_type); }
+  if (segment) { where.push('c.segment = ?'); p.push(segment); }
   return db.prepare(`SELECT c.*, o.name origin_name,
       (SELECT GROUP_CONCAT(TRIM(COALESCE(brand,'') || ' ' || COALESCE(model,'') || CASE WHEN plate IS NOT NULL THEN ' · ' || plate ELSE '' END), ', ') FROM vehicles WHERE client_id = c.id) vehicles_txt,
       (SELECT MIN(due_date) FROM followups WHERE client_id = c.id AND status = 'pendente') next_followup
@@ -278,6 +282,62 @@ r.post('/clients/import', wrap((req, res) => {
       const cid = db.prepare(`INSERT INTO clients(name, whatsapp, whatsapp_digits, origin_id, campaign_id, client_type, entry_date, created_at, updated_at)
         VALUES (?,?,?,?,?,?,?,?,?)`).run(name || phone, phone || null, wd || null, base.origin_id, base.campaign_id, base.client_type, today(), now(), now()).lastInsertRowid;
       logEvent(cid, null, 'contato', 'Importado de lista', req.user);
+      created++;
+    }
+  })();
+  return { created, skipped };
+}));
+
+// Importação da planilha de prospecção (CSV com cabeçalho; separador ; ou ,)
+// Colunas reconhecidas: nome, segmento, prioridade, whatsapp, telefone, contato, bairro, endereco, site, instagram,
+// distancia_km, abordagem, observacao, fonte, place_id
+function parseCsv(text) {
+  const t = String(text || '').replace(/^\uFEFF/, '');
+  const first = t.split(/\r?\n/)[0] || '';
+  const sep = (first.match(/;/g) || []).length >= (first.match(/,/g) || []).length ? ';' : ',';
+  const rows = []; let row = []; let cur = ''; let q = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (q) { if (ch === '"' && t[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; continue; }
+    if (ch === '"') q = true;
+    else if (ch === sep) { row.push(cur); cur = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && t[i + 1] === '\n') i++; row.push(cur); cur = ''; if (row.some((x) => x.trim())) rows.push(row); row = []; }
+    else cur += ch;
+  }
+  row.push(cur); if (row.some((x) => x.trim())) rows.push(row);
+  const norm = (h) => h.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '_');
+  const head = (rows.shift() || []).map(norm);
+  return rows.map((r) => Object.fromEntries(head.map((h, i) => [h, (r[i] || '').trim()])));
+}
+r.post('/clients/import-csv', wrap((req, res) => {
+  const items = parseCsv(req.body.text);
+  if (!items.length || !('nome' in items[0])) return bad(res, 'Arquivo sem a coluna "nome". Use a planilha de prospecção da GSM.');
+  let origin = req.body.origin_id || null;
+  if (!origin) {
+    const o = db.prepare("SELECT id FROM origins WHERE name = 'Google Maps/B2B'").get();
+    origin = o ? o.id : db.prepare("INSERT INTO origins(name, sort) VALUES ('Google Maps/B2B', 99)").run().lastInsertRowid;
+  }
+  const seg = (s) => SEGMENTS.find((x) => x.toLowerCase() === String(s || '').toLowerCase()) || str(s);
+  let created = 0; const skipped = [];
+  const ins = db.prepare(`INSERT INTO clients(name, whatsapp, whatsapp_digits, phone, origin_id, campaign_id, client_type, segment, priority,
+      contact_person, address, neighborhood, website, instagram, distance_km, source_ref, notes, owner, entry_date, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  db.transaction(() => {
+    for (const it of items) {
+      const name = str(it.nome); if (!name) continue;
+      const wd = normPhone(it.whatsapp) || null;
+      const dup = (wd && db.prepare('SELECT 1 FROM clients WHERE whatsapp_digits = ?').get(wd))
+        || (it.place_id && db.prepare('SELECT 1 FROM clients WHERE source_ref = ?').get(it.place_id))
+        || (!wd && db.prepare('SELECT 1 FROM clients WHERE lower(name) = lower(?) AND COALESCE(phone,\'\') = ?').get(name, str(it.telefone) || ''));
+      if (dup) { skipped.push(name); continue; }
+      const s = seg(it.segmento);
+      const notes = [it.abordagem && 'Abordagem: ' + it.abordagem, it.observacao && 'Obs.: ' + it.observacao, it.fonte && 'Fonte: ' + it.fonte].filter(Boolean).join('\n');
+      const cid = ins.run(name, str(it.whatsapp), wd, str(it.telefone), origin, req.body.campaign_id || null,
+        s === 'Consumidor final' ? 'Pessoa física' : (s === 'Frota' || s === 'Transportadora' ? 'Frota' : 'Empresa'), s, str(it.prioridade),
+        str(it.contato), str(it.endereco), str(it.bairro), str(it.site), str(it.instagram),
+        it.distancia_km ? Number(String(it.distancia_km).replace(',', '.')) : null, str(it.place_id), notes || null,
+        req.user?.name || null, today(), now(), now()).lastInsertRowid;
+      logEvent(cid, null, 'contato', 'Importado da lista de prospecção', req.user);
       created++;
     }
   })();
@@ -649,12 +709,16 @@ r.post('/followups/:id/done', wrap((req, res) => {
 
 // =================== CRM / PIPELINE ===================
 r.get('/pipeline', wrap((req) => {
-  const { origin_id, campaign_id, q } = req.query;
+  const { origin_id, campaign_id, q, segment, priority } = req.query;
   const where = []; const p = [];
   if (origin_id) { where.push('c.origin_id = ?'); p.push(origin_id); }
+  if (segment === '_empresas') where.push("c.segment IS NOT NULL AND c.segment <> '' AND c.segment <> 'Consumidor final'");
+  else if (segment) { where.push('c.segment = ?'); p.push(segment); }
+  if (priority) { where.push('c.priority = ?'); p.push(priority); }
   if (campaign_id) { where.push('c.campaign_id = ?'); p.push(campaign_id); }
   if (q) { where.push('c.name LIKE ?'); p.push(`%${q}%`); }
-  const rows = db.prepare(`SELECT c.id, c.name, c.stage, c.whatsapp_digits, o.name origin_name,
+  const rows = db.prepare(`SELECT c.id, c.name, c.stage, c.whatsapp_digits, c.phone, c.segment, c.priority, c.neighborhood,
+      c.contact_person, c.notes, c.last_contact_at, o.name origin_name,
       lq.id quote_id, lq.total potential,
       (SELECT GROUP_CONCAT(name, ' + ') FROM quote_items WHERE quote_id = lq.id) services,
       COALESCE((SELECT TRIM(COALESCE(brand,'') || ' ' || COALESCE(model,'')) FROM vehicles WHERE id = lq.vehicle_id),
