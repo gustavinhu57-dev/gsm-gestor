@@ -1031,6 +1031,78 @@ r.get('/jarvis', wrap(() => {
   return { alerts: alerts.sort((a, b) => order[a.level] - order[b.level]), followups_due: atrasados + hoje };
 }));
 
+// =================== AVISOS DO FUNIL (quem precisa receber mensagem agora) ===================
+// Dias sem contato, por coluna, até o aviso aparecer. Um follow-up pendente com data futura segura o aviso;
+// um follow-up vencido (hoje ou antes) sempre gera aviso.
+const FUNNEL_RULES = {
+  abordado: [2, 'Sem resposta há {d} dias: mandar a 2ª mensagem'],
+  respondeu: [1, 'Respondeu e está esperando você há {d} dia(s)'],
+  interessado: [1, 'Interessado, sem contato há {d} dia(s): pedir modelo e foto'],
+  orcamento: [2, 'Orçamento sem retorno há {d} dias: fazer follow-up'],
+  followup: [2, 'Em follow-up, sem contato há {d} dias'],
+  fechado: [1, 'Fechou: combinar a data do serviço'],
+  standby: [15, 'Em stand-by há {d} dias: tentar retomar'],
+  executado: [7, 'Serviço feito há {d} dias: pós-venda'],
+  pago: [7, 'Serviço feito há {d} dias: pós-venda'],
+};
+function funnelAlerts() {
+  const t = today();
+  const goal = Math.max(0, Number(getSettings().funil_meta_dia || 10));
+  const done = db.prepare("SELECT COUNT(DISTINCT client_id) n FROM events WHERE substr(created_at,1,10) = ? AND description LIKE 'Apresenta%'").get(t).n;
+  const rows = db.prepare(`SELECT c.id, c.name, c.stage, c.segment, c.priority, c.neighborhood, c.whatsapp_digits, c.phone,
+      c.contact_person, c.distance_km, c.source_ref, o.name origin_name,
+      CAST(julianday(?) - julianday(substr(COALESCE(c.last_contact_at, c.updated_at, c.created_at),1,10)) AS INTEGER) days,
+      (SELECT MIN(due_date) FROM followups f WHERE f.client_id = c.id AND f.status = 'pendente') next_fu,
+      (SELECT reason FROM followups f WHERE f.client_id = c.id AND f.status = 'pendente' ORDER BY due_date LIMIT 1) next_fu_reason
+    FROM clients c LEFT JOIN origins o ON o.id = c.origin_id
+    WHERE c.stage NOT IN ('agendado','posvenda')`).all(t);
+  const items = []; const prospects = [];
+  for (const c of rows) {
+    if (c.next_fu && c.next_fu <= t) {
+      items.push({ ...c, urgent: true, reason: `Follow-up ${c.next_fu < t ? 'atrasado' : 'de hoje'}${c.next_fu_reason ? ': ' + c.next_fu_reason : ''}` });
+    } else if (c.next_fu) {
+      continue; // contato já programado para depois
+    } else if (c.stage === 'novo') {
+      const inbound = !c.source_ref && c.origin_name !== 'Google Maps/B2B';
+      if (inbound) items.push({ ...c, urgent: true, group: 'lead', reason: 'Lead novo esperando resposta' });
+      else prospects.push(c);
+    } else if (FUNNEL_RULES[c.stage] && c.days >= FUNNEL_RULES[c.stage][0]) {
+      items.push({ ...c, reason: FUNNEL_RULES[c.stage][1].replace('{d}', c.days) });
+    }
+  }
+  // Prospecção: sugere as próximas empresas até completar a meta de apresentações do dia
+  const pr = { A: 0, B: 1, C: 2 };
+  prospects.sort((a, b) => (pr[a.priority] ?? 3) - (pr[b.priority] ?? 3) || (a.distance_km ?? 99) - (b.distance_km ?? 99));
+  prospects.slice(0, Math.max(0, goal - done)).forEach((c) => items.push({ ...c, reason: `Apresentar hoje (prioridade ${c.priority || '—'})` }));
+  // Ordem: leads novos (responder já) → colunas do funil → "A contatar" (meta do dia) por último
+  const cols = [['lead', 'Leads novos — responder já']].concat(STAGES.filter(([k]) => k !== 'novo'), [['novo', 'A contatar — meta do dia']]);
+  const groups = cols.map(([k, l]) => ({ stage: k, label: l, items: items.filter((i) => (i.group || i.stage) === k) }))
+    .filter((g) => g.items.length)
+    .map((g) => ({ ...g, items: g.items.sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0) || b.days - a.days) }));
+  return { total: items.length, urgent: items.filter((i) => i.urgent).length, goal, done, groups };
+}
+r.get('/funnel-alerts', wrap(() => funnelAlerts()));
+// Registra que a mensagem foi mandada (fora da etapa "A contatar"): conclui follow-ups vencidos e zera o contador de dias
+r.post('/clients/:id/touch', wrap((req) => {
+  const t = today();
+  db.transaction(() => {
+    db.prepare('UPDATE clients SET last_contact_at = ? WHERE id = ?').run(now(), req.params.id);
+    db.prepare("UPDATE followups SET status = 'concluido', result = ?, done_at = ? WHERE client_id = ? AND status = 'pendente' AND due_date <= ?")
+      .run('Mensagem enviada pelo aviso do funil', now(), req.params.id, t);
+    logEvent(req.params.id, null, 'contato', str(req.body.description) || 'Mensagem enviada (aviso do funil)', req.user);
+  })();
+  return { ok: true };
+}));
+// "Adiar": empurra o aviso para outro dia criando um follow-up
+r.post('/clients/:id/snooze', wrap((req) => {
+  const days = Math.max(1, Math.min(30, Number(req.body.days) || 1));
+  const t = today();
+  db.prepare("UPDATE followups SET status = 'concluido', result = 'Adiado', done_at = ? WHERE client_id = ? AND status = 'pendente' AND due_date <= ?").run(now(), req.params.id, t);
+  db.prepare('INSERT INTO followups(client_id, due_date, reason, owner, created_at) VALUES (?,?,?,?,?)')
+    .run(req.params.id, addDays(t, days), 'Adiado pelo aviso do funil', req.user.name, now());
+  return { ok: true };
+}));
+
 // =================== BACKUP ===================
 r.get('/backup', auth.requireRole(), async (req, res, next) => {
   try {

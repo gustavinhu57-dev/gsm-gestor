@@ -207,7 +207,7 @@ function openProfile() {
     <div class="actions"><a class="btn" href="#/config">${icon('gear')} Configurações</a><button class="btn danger" id="pfOut">${icon('logout')} Sair</button></div>`,
   (m) => { $('#pfOut', m.el).onclick = logout; $('a', m.el).onclick = m.close; });
 }
-async function logout() { await post('/logout'); S.me = null; location.hash = '#/'; renderLogin(); }
+async function logout() { await post('/logout'); S.me = null; $('#avisoFab')?.remove(); location.hash = '#/'; renderLogin(); }
 
 async function refreshBadges() {
   try {
@@ -217,6 +217,7 @@ async function refreshBadges() {
     if (jb) { jb.textContent = j.alerts.length; jb.classList.toggle('hidden', !j.alerts.length); }
     if (fb) { fb.textContent = j.followups_due; fb.classList.toggle('hidden', !j.followups_due); }
   } catch { /* silencioso */ }
+  if (typeof refreshAvisos === 'function') refreshAvisos();
 }
 function jarvisList(alerts) {
   if (!alerts.length) return '<div class="empty">Tudo em dia por aqui. 👌</div>';
