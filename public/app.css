@@ -242,3 +242,14 @@ label.check input { width: 22px; height: 22px; flex: none; margin: 0; accent-col
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 14px; }
 .kv dt { color: var(--mute); } .kv dd { margin: 0; font-weight: 600; }
 details > summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
+
+/* Funil comercial */
+.pri { display: inline-block; min-width: 20px; padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 800; text-align: center; vertical-align: 1px; background: #e5e7eb; color: #374151; }
+.pri-A { background: #fde68a; color: #78350f; }
+.pri-B { background: #dbeafe; color: #1e3a8a; }
+.pri-C { background: #f3f4f6; color: #6b7280; }
+.kcard.dragging { opacity: .45; }
+.col.over { outline: 2px dashed var(--gold, #c9a227); outline-offset: -4px; }
+@media (min-width: 1024px) { #kb .col { width: 250px; } }
+.kfilters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+@media (min-width: 900px) { .kfilters { grid-template-columns: repeat(4, minmax(0, 1fr)); } }

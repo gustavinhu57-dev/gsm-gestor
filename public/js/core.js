@@ -153,7 +153,7 @@ document.addEventListener('click', (e) => {
 
 // ---------- Layout ----------
 const MENU = [
-  ['#/', 'Dashboard', 'home'], ['#/metas', 'Metas', 'flag'], ['#/clientes', 'Clientes', 'users'], ['#/crm', 'CRM', 'kanban'],
+  ['#/', 'Dashboard', 'home'], ['#/metas', 'Metas', 'flag'], ['#/clientes', 'Clientes', 'users'], ['#/crm', 'Funil comercial', 'kanban'],
   ['#/orcamentos', 'Orçamentos', 'file'], ['#/followups', 'Follow-ups', 'clock'], ['#/servicos', 'Serviços', 'tag'], ['#/produtos', 'Produtos', 'wrench'],
   ['#/financeiro', 'Financeiro', 'money'], ['#/campanhas', 'Campanhas', 'flag'], ['#/fotos', 'Fotos', 'image'], ['#/config', 'Configurações', 'gear'],
 ];
@@ -183,7 +183,7 @@ function renderShell() {
     <a href="#/" data-nav="#/">${icon('home')}Início</a>
     <a href="#/clientes" data-nav="#/clientes">${icon('users')}Clientes</a>
     <a href="#/orcamento/novo" class="fab"><span class="circle">${icon('plus')}</span>Orçamento</a>
-    <a href="#/crm" data-nav="#/crm">${icon('kanban')}CRM</a>
+    <a href="#/crm" data-nav="#/crm">${icon('kanban')}Funil</a>
     <a href="#/orcamentos" data-nav="#/orcamentos">${icon('file')}Orçamentos</a>
   </nav>`;
   $('#menuBtn').onclick = openDrawer;

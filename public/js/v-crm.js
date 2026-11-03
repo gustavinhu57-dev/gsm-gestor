@@ -31,37 +31,139 @@ function followupForm(pre = {}) {
   });
 }
 
-// ---------- CRM / KANBAN ----------
+// ---------- FUNIL COMERCIAL (CRM / KANBAN) ----------
+// Mensagens de apresentação por segmento (tom consultivo; serviços agrupados; CTA pedindo modelo e foto)
+const PITCH = {
+  'Transportadora': `Trabalhamos com conservação e conforto de cabines de caminhão, o que pesa no dia a dia do motorista e no valor do veículo da frota.
+
+🪡 Tapeçaria e revestimentos: capas de banco sob medida (prontas em 2 dias, caminhão parado o mínimo possível), painel e colchão
+✨ Estética automotiva: higienização completa da cabine, restauração de farol e de plásticos
+
+Fazemos uma avaliação dos veículos e montamos uma proposta para a frota.
+Com quem posso falar sobre a manutenção dos caminhões? Se puder, me envie os modelos e uma foto da cabine que eu já preparo o orçamento.`,
+  'Frota': `Cuidamos do acabamento e da conservação de veículos de frota. Interior limpo e bem conservado passa confiança para quem usa o veículo todos os dias.
+
+🪡 Tapeçaria e revestimentos: capas de banco sob medida, volante e revestimentos
+✨ Estética automotiva: higienização interna completa, polimento, restauração de farol e de plásticos
+
+Buscamos e entregamos o veículo e fazemos condição especial por quantidade.
+Me envia os modelos da frota e uma foto do interior que eu preparo uma proposta?`,
+  'Loja de veículos': `Ajudamos lojas a valorizar o seminovo antes da venda: farol transparente, pintura com brilho e interior higienizado fazem o carro vender mais rápido e com menos negociação.
+
+✨ Estética automotiva: polimento comercial, restauração de farol e de plásticos, higienização interna
+🪡 Tapeçaria e revestimentos: capas de banco e volante para renovar o interior
+
+Temos preço de parceiro por carro e buscamos o veículo na loja.
+Posso avaliar um carro do seu estoque? Me envie o modelo e uma foto.`,
+  'Locadora': `Ajudamos locadoras a manter os carros prontos para o próximo cliente e protegidos do desgaste.
+
+✨ Estética automotiva: higienização interna entre locações, polimento, farol e plásticos
+🪡 Tapeçaria e revestimentos: capas de banco sob medida que protegem o estofado original
+
+Fechamos pacote mensal com preço por veículo, com busca e entrega.
+Com quem posso falar sobre a manutenção da frota? Se puder, me envie os modelos que vocês têm.`,
+  'Embarcações': `Também atendemos embarcações: estofados expostos a sol e umidade pedem material e costura adequados.
+
+🪡 Tapeçaria e revestimentos: capas e estofados sob medida para lanchas e barcos
+✨ Estética: higienização de estofados e interiores
+
+Fazemos a avaliação no local. Se vocês atendem donos de lancha que precisam desse serviço, podemos fazer uma parceria de indicação.
+Tem alguma embarcação para avaliarmos? Me envie o modelo e uma foto.`,
+  'Oficina': `Muitos clientes da oficina também precisam de acabamento interno e estético, e isso não concorre com o serviço de vocês.
+
+🪡 Tapeçaria e revestimentos: capas de banco, volante, carpete e teto
+✨ Estética automotiva: higienização, polimento, restauração de farol e de plásticos
+
+Proposta de parceria: vocês indicam e recebem comissão por serviço fechado. Buscamos e entregamos o carro.
+Posso passar aí para apresentar o nosso trabalho?`,
+  'Lava-jato': `A ideia é somar com o seu lava-jato: os serviços que pedem mais tempo e equipamento ficam com a gente, e você atende o seu cliente completo.
+
+🪡 Tapeçaria e revestimentos: capas de banco, volante, teto e carpete
+✨ Estética automotiva: higienização completa, polimento, farol e plásticos
+
+Você indica e recebe comissão por serviço fechado; buscamos e entregamos o carro.
+Podemos conversar sobre essa parceria?`,
+  'Comerciante': `Atendemos empresas que usam veículos no dia a dia (entregas, vendas, serviços externos). Conservar o interior evita desgaste e mantém a boa imagem da empresa.
+
+🪡 Tapeçaria e revestimentos: capas de banco sob medida para carros, utilitários, caminhões e motos
+✨ Estética automotiva: higienização interna, restauração de farol e de plásticos
+
+Condição especial para empresa, com busca e entrega.
+Quais veículos vocês usam? Me envie o modelo e uma foto que eu preparo o orçamento.`,
+  '_padrao': `Cuidamos do acabamento, do conforto e da conservação do seu veículo.
+
+🪡 Tapeçaria e revestimentos: capas de banco, volante, teto e carpete
+✨ Estética automotiva: higienização, polimento, restauração de farol e de plásticos
+
+Fazemos uma avaliação do veículo, e buscamos e entregamos.
+Me envie o modelo do carro e uma foto que eu preparo o orçamento?`,
+};
+function pitchText(c) {
+  const quem = firstName(S.me.name) || 'Gustavo';
+  const contato = c.contact_person ? `Olá, ${firstName(c.contact_person)}, tudo bem?` : 'Olá, tudo bem?';
+  return `${contato} Aqui é o ${quem}, do Studio GSM — Estética & Tapeçaria Automotiva, na Zona Norte de Manaus.
+
+${PITCH[c.segment] || PITCH._padrao}
+
+Studio GSM | Estética & Tapeçaria Automotiva
+Customizar • Reparar • Proteger`;
+}
+const telDigits = (c) => (c.whatsapp_digits || digitsOnly(c.phone));
+function digitsOnly(s) { const d = String(s || '').replace(/\D/g, ''); return d ? (d.length <= 11 ? '55' + d : d) : ''; }
+
 route(/^#\/crm$/, async (v, _, query) => {
   const m = S.meta;
-  const params = new URLSearchParams({ origin_id: query.origin_id || '', campaign_id: query.campaign_id || '' });
-  const data = await api('/pipeline?' + params);
+  const fl = { origin_id: query.origin_id || '', campaign_id: query.campaign_id || '', segment: query.segment || '', priority: query.priority || '' };
+  const data = await api('/pipeline?' + new URLSearchParams(fl));
   const t = todayStr();
   const byStage = Object.fromEntries(data.stages.map(([k]) => [k, []]));
   data.cards.forEach((c) => (byStage[c.stage] || byStage.novo).push(c));
+  const prOrder = { A: 0, B: 1, C: 2 };
+  byStage.novo.sort((a, b) => (prOrder[a.priority] ?? 3) - (prOrder[b.priority] ?? 3));
   const stIdx = Object.fromEntries(data.stages.map(([k], i) => [k, i]));
-  v.innerHTML = `<div class="page-head"><h1>CRM</h1><button class="btn gold" id="kNew">${icon('userplus')} Lead</button></div>
-    <div class="row" style="margin-bottom:10px">
-      <select class="i" id="kOrig">${opts(m.origins, query.origin_id, 'Todas as origens')}</select>
-      <select class="i" id="kCamp">${opts(m.campaigns, query.campaign_id, 'Todas as campanhas')}</select>
+  // Etapas de execução (Agendado → Pós-venda) ficam ocultas por padrão para o funil caber na tela
+  const EXEC = ['agendado', 'executado', 'pago', 'posvenda'];
+  let showExec = false; try { showExec = localStorage.getItem('gsm_funil_exec') === '1'; } catch (e) { /* sem storage */ }
+  const visible = data.stages.filter(([k]) => showExec || !EXEC.includes(k) || byStage[k].length);
+  const segOpts = [['_empresas', 'Só empresas']].concat(m.segments.map((s) => [s, s]));
+  v.innerHTML = `<div class="page-head"><h1>Funil comercial</h1><button class="btn" id="kImp">${icon('users')} Importar</button><button class="btn gold" id="kNew">${icon('userplus')} Lead</button></div>
+    <div class="kfilters">
+      <select class="i" id="kSeg">${opts(segOpts, fl.segment, 'Todos os segmentos')}</select>
+      <select class="i" id="kPri">${opts([['A', 'Prioridade A'], ['B', 'Prioridade B'], ['C', 'Prioridade C']], fl.priority, 'Todas as prioridades')}</select>
+      <select class="i" id="kOrig">${opts(m.origins, fl.origin_id, 'Todas as origens')}</select>
+      <select class="i" id="kCamp">${opts(m.campaigns, fl.campaign_id, 'Todas as campanhas')}</select>
     </div>
-    <div class="chips" style="margin-bottom:10px">${data.stages.map(([k, l]) => `<button class="chip" data-jump="${k}">${l}<span class="n">${byStage[k].length}</span></button>`).join('')}</div>
-    <div class="kanban" id="kb">${data.stages.map(([k, l]) => `<div class="col" data-col="${k}" id="col-${k}">
+    <div class="chips" style="margin-bottom:10px">${visible.map(([k, l]) => `<button class="chip" data-jump="${k}">${l}<span class="n">${byStage[k].length}</span></button>`).join('')}</div>
+    <div class="row tiny muted" style="margin:-4px 0 8px;align-items:center;gap:12px;flex-wrap:wrap"><span>Arraste os cartões entre as colunas (computador) ou use ◀ ▶ (celular). Toque no cartão para enviar a apresentação.</span>
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer;white-space:nowrap"><input type="checkbox" id="kExec" ${showExec ? 'checked' : ''}> Mostrar etapas de execução</label></div>
+    <div class="kanban" id="kb">${visible.map(([k, l]) => `<div class="col" data-col="${k}" id="col-${k}">
       <div class="col-head">${l} <small>${byStage[k].length}${byStage[k].some((c) => c.potential) ? ' · ' + brl0(byStage[k].reduce((s, c) => s + (c.potential || 0), 0)) : ''}</small></div>
-      <div class="col-body">${byStage[k].map((c) => `<div class="kcard" draggable="true" data-card="${c.id}">
-        <div class="nm">${esc(c.name)}</div>
+      <div class="col-body">${byStage[k].slice(0, 300).map((c) => `<div class="kcard" draggable="true" data-card="${c.id}">
+        <div class="nm">${c.priority ? `<span class="pri pri-${esc(c.priority)}">${esc(c.priority)}</span> ` : ''}${esc(c.name)}</div>
+        ${c.segment || c.neighborhood ? `<div class="ln">${esc([c.segment, c.neighborhood].filter(Boolean).join(' · '))}</div>` : ''}
         ${c.services ? `<div class="ln">${esc(c.services)}</div>` : ''}
         ${c.vehicle ? `<div class="ln">${icon('car', 'width="13" height="13" style="vertical-align:-2px"')} ${esc(c.vehicle)}</div>` : ''}
-        <div class="ft"><span class="tag">${esc(c.origin_name || '—')}</span>${c.potential ? `<b>${brl0(c.potential)}</b>` : ''}</div>
-        <div class="ft"><span class="tiny ${c.next_followup && c.next_followup < t ? 'red bold' : 'muted'}">${c.next_followup ? '⏰ ' + fdate(c.next_followup) : 'sem follow-up'}</span>
+        <div class="ft"><span class="tag">${esc(c.origin_name || '—')}</span>${c.potential ? `<b>${brl0(c.potential)}</b>` : (!c.whatsapp_digits && c.phone ? '<span class="tiny muted">☎ fixo</span>' : '')}</div>
+        <div class="ft"><span class="tiny ${c.next_followup && c.next_followup < t ? 'red bold' : 'muted'}">${c.next_followup ? '⏰ ' + fdate(c.next_followup) : (c.last_contact_at ? 'últ. contato ' + relDay(c.last_contact_at) : 'sem follow-up')}</span>
           <span class="mv">${k !== 'standby' && stIdx[k] > 0 ? '<button data-mv="-1" aria-label="Voltar">◀</button>' : ''}${k !== 'standby' && stIdx[k] < data.stages.length - 2 ? '<button data-mv="1" aria-label="Avançar">▶</button>' : ''}</span></div>
-      </div>`).join('') || '<div class="tiny muted" style="padding:6px">—</div>'}</div></div>`).join('')}</div>`;
+      </div>`).join('') || '<div class="tiny muted" style="padding:6px">—</div>'}${byStage[k].length > 300 ? `<div class="tiny muted" style="padding:6px">+${byStage[k].length - 300} — use os filtros</div>` : ''}</div></div>`).join('')}</div>`;
 
-  const go = () => { location.hash = '#/crm?' + new URLSearchParams({ origin_id: $('#kOrig').value, campaign_id: $('#kCamp').value }); };
-  $('#kOrig').onchange = $('#kCamp').onchange = go;
+  const go = () => { location.hash = '#/crm?' + new URLSearchParams({ segment: $('#kSeg').value, priority: $('#kPri').value, origin_id: $('#kOrig').value, campaign_id: $('#kCamp').value }); };
+  $('#kOrig').onchange = $('#kCamp').onchange = $('#kSeg').onchange = $('#kPri').onchange = go;
   $('#kNew').onclick = () => clientForm({}, () => reload());
+  $('#kImp').onclick = () => importForm({ mode: 'csv' });
+  $('#kExec').onchange = (e) => { try { localStorage.setItem('gsm_funil_exec', e.target.checked ? '1' : '0'); } catch (err) { /* sem storage */ } reload(); };
+  // Rolagem automática do quadro ao arrastar perto das bordas
+  const kb = $('#kb');
+  kb.addEventListener('dragover', (e) => {
+    const r = kb.getBoundingClientRect(); const edge = 90;
+    if (e.clientX < r.left + edge) kb.scrollLeft -= 18; else if (e.clientX > r.right - edge) kb.scrollLeft += 18;
+  });
   $$('[data-jump]', v).forEach((b) => { b.onclick = () => $('#col-' + b.dataset.jump).scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' }); });
-  const move = async (id, stage) => { await run(() => post(`/clients/${id}/stage`, { stage })); toast('Movido para ' + stageLabel(stage)); reload(); };
+  const move = async (id, stage) => {
+    if (stage === 'standby') { standbyAsk(id, () => reload()); return; }
+    await run(() => post(`/clients/${id}/stage`, { stage })); toast('Movido para ' + stageLabel(stage)); reload();
+  };
   $$('[data-card]', v).forEach((el) => {
     const c = data.cards.find((x) => x.id == el.dataset.card);
     el.onclick = (e) => {
@@ -69,26 +171,69 @@ route(/^#\/crm$/, async (v, _, query) => {
       if (mv) { e.stopPropagation(); move(c.id, data.stages[stIdx[c.stage] + Number(mv.dataset.mv)][0]); return; }
       cardSheet(c, data.stages, move);
     };
-    el.ondragstart = (e) => { e.dataTransfer.setData('text/plain', c.id); };
+    el.ondragstart = (e) => { e.dataTransfer.setData('text/plain', c.id); e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging'); };
+    el.ondragend = () => el.classList.remove('dragging');
   });
   $$('[data-col]', v).forEach((col) => {
     col.ondragover = (e) => { e.preventDefault(); col.classList.add('over'); };
-    col.ondragleave = () => col.classList.remove('over');
-    col.ondrop = (e) => { e.preventDefault(); col.classList.remove('over'); const id = e.dataTransfer.getData('text/plain'); if (id) move(id, col.dataset.col); };
+    col.ondragleave = (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove('over'); };
+    col.ondrop = (e) => {
+      e.preventDefault(); col.classList.remove('over');
+      const id = e.dataTransfer.getData('text/plain'); const c = data.cards.find((x) => x.id == id);
+      if (id && c && c.stage !== col.dataset.col) move(id, col.dataset.col);
+    };
   });
 });
+
+// Stand-by pede o motivo (vai para o histórico do cliente)
+function standbyAsk(id, done) {
+  modal('Mover para stand-by', `<form id="sbf">
+    <div class="opt-list">${S.meta.standbyReasons.map((r, i) => `<label class="opt"><input type="radio" name="reason" value="${esc(r)}" ${i ? '' : 'checked'} hidden>${esc(r)}</label>`).join('')}</div>
+    <label class="f" style="margin-top:10px"><span>Retomar em (opcional)</span><input class="i" type="date" name="due" value=""></label>
+    <button class="btn gold block lg">Mover para stand-by</button></form>`, (md) => {
+    $$('.opt input', md.el).forEach((r) => { r.onchange = () => $$('.opt', md.el).forEach((o) => o.classList.toggle('active', $('input', o).checked)); });
+    $$('.opt', md.el)[0]?.classList.add('active');
+    $('#sbf', md.el).onsubmit = async (e) => {
+      e.preventDefault(); const d = formData(e.target);
+      await run(async () => {
+        await post(`/clients/${id}/stage`, { stage: 'standby' });
+        await post(`/clients/${id}/events`, { type: 'nota', description: 'Stand-by: ' + d.reason });
+        if (d.due) await post('/followups', { client_id: id, due_date: d.due, reason: 'Recuperar stand-by', owner: S.me.name });
+      });
+      md.close(); toast('Movido para stand-by'); done();
+    };
+  });
+}
+
 function cardSheet(c, stages, move) {
-  modal(esc(c.name), `<div class="small muted" style="margin-bottom:10px">${esc([c.services, c.vehicle, c.origin_name].filter(Boolean).join(' · '))}${c.potential ? ' · ' + brl(c.potential) : ''}</div>
+  const wa = c.whatsapp_digits; const tel = telDigits(c);
+  modal(esc(c.name), `<div class="small muted" style="margin-bottom:10px">${esc([c.segment, c.neighborhood, c.services, c.vehicle, c.origin_name].filter(Boolean).join(' · '))}${c.potential ? ' · ' + brl(c.potential) : ''}</div>
+    ${c.notes ? `<p class="small" style="background:var(--soft);padding:10px;border-radius:10px;white-space:pre-wrap;margin-top:0">${esc(c.notes)}</p>` : ''}
+    ${c.stage === 'novo' ? `<label class="f"><span>Mensagem de apresentação (edite se quiser)</span><textarea class="i" id="csMsg" rows="9">${esc(pitchText(c))}</textarea></label>` : ''}
     <div class="grid g2" style="margin-bottom:12px">
-      <button class="btn wa" id="csWa" ${c.whatsapp_digits ? '' : 'disabled'}>${icon('wa')} WhatsApp</button>
+      ${c.stage === 'novo'
+    ? `<button class="btn wa" id="csPitch" ${wa ? '' : 'disabled'}>${icon('wa')} Enviar apresentação</button>`
+    : `<button class="btn wa" id="csWa" ${wa ? '' : 'disabled'}>${icon('wa')} WhatsApp</button>`}
+      ${tel ? `<a class="btn" href="tel:+${tel}" id="csTel">☎ Ligar ${!wa && c.phone ? '(fixo)' : ''}</a>` : '<span></span>'}
       <a class="btn" href="#/cliente/${c.id}">Abrir ficha</a>
       <a class="btn gold" href="#/orcamento/novo?client=${c.id}">${icon('plus')} Orçamento</a>
       <button class="btn" id="csFu">${icon('clock')} Follow-up</button>
+      ${c.stage === 'novo' ? `<button class="btn" id="csDone">✓ Já me apresentei</button>` : ''}
     </div>
     <label class="f"><span>Mover para</span></label>
     <div class="opt-list">${stages.map(([k, l]) => `<button class="opt ${k === c.stage ? 'active' : ''}" data-st="${k}">${l}</button>`).join('')}</div>`, (md) => {
     $$('a', md.el).forEach((a) => { a.addEventListener('click', md.close); });
-    $('#csWa', md.el).onclick = () => { openWa(c.whatsapp_digits, `Olá ${firstName(c.name)}, tudo bem? Aqui é da GSM — Estética & Tapeçaria Automotiva.`); post(`/clients/${c.id}/contacted`); md.close(); };
+    const afterPitch = async (desc) => {
+      await post(`/clients/${c.id}/contacted`, { description: desc });
+      await post('/followups', { client_id: c.id, due_date: addDays(todayStr(), 2), reason: 'Retorno da apresentação', owner: S.me.name }).catch(() => {});
+      md.close(); toast('Apresentação registrada · follow-up em 2 dias'); reload();
+    };
+    const pb = $('#csPitch', md.el);
+    if (pb) pb.onclick = () => { openWa(wa, $('#csMsg', md.el).value); afterPitch('Apresentação enviada pelo WhatsApp'); };
+    const dn = $('#csDone', md.el);
+    if (dn) dn.onclick = () => afterPitch('Apresentação feita (ligação/visita)');
+    const wb = $('#csWa', md.el);
+    if (wb) wb.onclick = () => { openWa(wa, `Olá ${firstName(c.contact_person || c.name)}, tudo bem? Aqui é da GSM — Estética & Tapeçaria Automotiva.`); post(`/clients/${c.id}/contacted`); md.close(); };
     $('#csFu', md.el).onclick = () => { md.close(); followupForm({ client_id: c.id, quote_id: c.quote_id, client_name: c.name }); };
     $$('[data-st]', md.el).forEach((b) => { b.onclick = () => { md.close(); if (b.dataset.st !== c.stage) move(c.id, b.dataset.st); }; });
   });
